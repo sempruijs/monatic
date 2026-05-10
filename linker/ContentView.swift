@@ -67,6 +67,27 @@ class VaultGraph {
         inLinks[name] ?? []
     }
 
+    func rename(from oldName: String, to newName: String, newURL: URL) {
+        guard let entry = filesByName.removeValue(forKey: oldName) else { return }
+        filesByName[newName] = FileEntry(name: newName, url: newURL)
+
+        if let links = outLinks.removeValue(forKey: oldName) {
+            outLinks[newName] = links
+            for link in links {
+                inLinks[link]?.remove(oldName)
+                inLinks[link, default: []].insert(newName)
+            }
+        }
+
+        if let backrefs = inLinks.removeValue(forKey: oldName) {
+            inLinks[newName] = backrefs
+        }
+
+        files = filesByName.values.sorted {
+            $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+    }
+
     func updateLinks(for name: String, content: String) {
         let oldLinks = outLinks[name] ?? []
         let newLinks = Self.parseLinks(from: content)
@@ -430,6 +451,7 @@ struct ContentView: View {
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
     @State private var searchQuery: String = ""
+    @State private var editingTitle: String?
     @FocusState private var isSearchFocused: Bool
     @AccessibilityFocusState private var isSearchA11yFocused: Bool
 
@@ -478,14 +500,18 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if openFileURL != nil {
-                MarkdownTextView(text: $fileContent, fileNames: graph.sortedNames) { linkName in
-                    openLinkedFile(linkName)
-                }
-                .onChange(of: fileContent) {
-                    saveCurrentFile()
-                    if let name = openFileURL?.deletingPathExtension().lastPathComponent {
-                        graph.updateLinks(for: name, content: fileContent)
+            if let url = openFileURL {
+                VStack(spacing: 0) {
+                    noteTitleField(for: url)
+                    Divider()
+                    MarkdownTextView(text: $fileContent, fileNames: graph.sortedNames) { linkName in
+                        openLinkedFile(linkName)
+                    }
+                    .onChange(of: fileContent) {
+                        saveCurrentFile()
+                        if let name = openFileURL?.deletingPathExtension().lastPathComponent {
+                            graph.updateLinks(for: name, content: fileContent)
+                        }
                     }
                 }
             } else {
@@ -494,6 +520,22 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private func noteTitleField(for url: URL) -> some View {
+        let name = url.deletingPathExtension().lastPathComponent
+        return TextField("Note title", text: Binding(
+            get: { editingTitle ?? name },
+            set: { editingTitle = $0 }
+        ))
+        .textFieldStyle(.plain)
+        .font(.title)
+        .fontWeight(.bold)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .onAppear { editingTitle = nil }
+        .onSubmit { renameCurrentFile() }
+        .onChange(of: openFileURL) { editingTitle = nil }
     }
 
     private var quickOpenOverlay: some View {
@@ -606,6 +648,29 @@ struct ContentView: View {
     private func saveCurrentFile() {
         guard let url = openFileURL else { return }
         try? fileContent.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func renameCurrentFile() {
+        guard let oldURL = openFileURL,
+              let newTitle = editingTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !newTitle.isEmpty else {
+            editingTitle = nil
+            return
+        }
+
+        let oldName = oldURL.deletingPathExtension().lastPathComponent
+        guard newTitle != oldName else {
+            editingTitle = nil
+            return
+        }
+
+        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent("\(newTitle).md")
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            openFileURL = newURL
+            graph.rename(from: oldName, to: newTitle, newURL: newURL)
+            editingTitle = nil
+        } catch {}
     }
 }
 
