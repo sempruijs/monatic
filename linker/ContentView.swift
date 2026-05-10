@@ -431,6 +431,7 @@ struct ContentView: View {
     @State private var showQuickOpen: Bool = false
     @State private var searchQuery: String = ""
     @FocusState private var isSearchFocused: Bool
+    @AccessibilityFocusState private var isSearchA11yFocused: Bool
 
     var filteredFiles: [VaultGraph.FileEntry] {
         graph.search(searchQuery)
@@ -456,6 +457,9 @@ struct ContentView: View {
         .onChange(of: showQuickOpen) { _, newValue in
             if newValue {
                 isSearchFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isSearchA11yFocused = true
+                }
             }
         }
     }
@@ -500,6 +504,8 @@ struct ContentView: View {
                     .font(.title3)
                     .padding(12)
                     .focused($isSearchFocused)
+                    .accessibilityFocused($isSearchA11yFocused)
+                    .accessibilityLabel("Search files")
                     .onSubmit {
                         if let first = filteredFiles.first {
                             openFile(first.url)
