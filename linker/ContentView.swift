@@ -1,7 +1,213 @@
+import Combine
 import SwiftUI
+
+// MARK: - Completion
+
+class CompletionState: ObservableObject {
+    @Published var items: [String] = []
+    @Published var selectedIndex: Int = 0
+    var onAccept: ((String) -> Void)?
+}
+
+struct CompletionListView: View {
+    @ObservedObject var state: CompletionState
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(state.items.enumerated()), id: \.offset) { index, name in
+                        Text(name)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(index == state.selectedIndex ? Color.accentColor : Color.clear)
+                            .foregroundStyle(index == state.selectedIndex ? .white : .primary)
+                            .cornerRadius(4)
+                            .id(index)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                state.onAccept?(name)
+                            }
+                    }
+                }
+                .padding(4)
+            }
+            .onChange(of: state.selectedIndex) { _, newValue in
+                proxy.scrollTo(newValue)
+            }
+        }
+    }
+}
+
+// MARK: - LinkCompletionTextView
+
+class LinkCompletionTextView: NSTextView {
+    var allFileNames: [String] = []
+    let completionState = CompletionState()
+
+    private var completionPanel: NSPanel?
+    private var isCompletionVisible: Bool { completionPanel?.isVisible == true }
+    private var isHandlingChange = false
+
+    override func didChangeText() {
+        guard !isHandlingChange else { return }
+        isHandlingChange = true
+        super.didChangeText()
+        updateCompletion()
+        isHandlingChange = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dismissCompletion()
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if isCompletionVisible {
+            switch event.keyCode {
+            case 125: // down
+                completionState.selectedIndex = min(
+                    completionState.selectedIndex + 1,
+                    completionState.items.count - 1
+                )
+                return
+            case 126: // up
+                completionState.selectedIndex = max(completionState.selectedIndex - 1, 0)
+                return
+            case 36, 48: // return, tab
+                if !completionState.items.isEmpty {
+                    acceptCompletion(completionState.items[completionState.selectedIndex])
+                    return
+                }
+            case 53: // escape
+                dismissCompletion()
+                return
+            case 123, 124: // left, right arrows dismiss completion
+                dismissCompletion()
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
+    }
+
+    private func updateCompletion() {
+        let cursorLocation = selectedRange().location
+        guard cursorLocation >= 2 else {
+            dismissCompletion()
+            return
+        }
+
+        let textUpToCursor = (string as NSString).substring(to: cursorLocation)
+
+        guard let openRange = textUpToCursor.range(of: "[[", options: .backwards) else {
+            dismissCompletion()
+            return
+        }
+
+        let afterOpen = String(textUpToCursor[openRange.upperBound...])
+        if afterOpen.contains("]]") || afterOpen.contains("\n") {
+            dismissCompletion()
+            return
+        }
+
+        let query = afterOpen
+        let filtered: [String]
+        if query.isEmpty {
+            filtered = allFileNames
+        } else {
+            filtered = allFileNames.filter { $0.localizedCaseInsensitiveContains(query) }
+        }
+
+        if filtered.isEmpty {
+            dismissCompletion()
+            return
+        }
+
+        completionState.items = filtered
+        completionState.selectedIndex = 0
+        showCompletionPanel()
+    }
+
+    private func showCompletionPanel() {
+        if completionPanel == nil {
+            setupCompletionPanel()
+        }
+
+        guard window != nil else { return }
+
+        var actualRange = selectedRange()
+        let cursorScreenRect = firstRect(forCharacterRange: selectedRange(), actualRange: &actualRange)
+
+        let panelHeight = min(CGFloat(completionState.items.count) * 28 + 8, 200)
+        completionPanel?.setFrame(
+            NSRect(
+                x: cursorScreenRect.origin.x,
+                y: cursorScreenRect.origin.y - panelHeight,
+                width: 300,
+                height: panelHeight
+            ),
+            display: true
+        )
+        completionPanel?.orderFront(nil)
+    }
+
+    private func setupCompletionPanel() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: true
+        )
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = true
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+
+        completionState.onAccept = { [weak self] name in
+            self?.acceptCompletion(name)
+        }
+
+        let hostingView = NSHostingView(
+            rootView: CompletionListView(state: completionState)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        )
+        panel.contentView = hostingView
+
+        completionPanel = panel
+    }
+
+    private func acceptCompletion(_ name: String) {
+        let cursorLocation = selectedRange().location
+        let textUpToCursor = (string as NSString).substring(to: cursorLocation)
+
+        guard let openRange = textUpToCursor.range(of: "[[", options: .backwards) else { return }
+
+        let replaceStart = textUpToCursor.distance(from: textUpToCursor.startIndex, to: openRange.upperBound)
+        let replaceRange = NSRange(location: replaceStart, length: cursorLocation - replaceStart)
+        let replacement = "\(name)]]"
+
+        if shouldChangeText(in: replaceRange, replacementString: replacement) {
+            replaceCharacters(in: replaceRange, with: replacement)
+            setSelectedRange(NSRange(location: replaceStart + replacement.count, length: 0))
+            didChangeText()
+        }
+
+        dismissCompletion()
+    }
+
+    func dismissCompletion() {
+        completionPanel?.orderOut(nil)
+    }
+}
+
+// MARK: - MarkdownTextView
 
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
+    var fileNames: [String]
     var onOpenLink: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -9,8 +215,27 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        let textView = scrollView.documentView as! NSTextView
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let contentSize = scrollView.contentSize
+
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = LinkCompletionTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
         textView.delegate = context.coordinator
         textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         textView.isAutomaticLinkDetectionEnabled = false
@@ -21,12 +246,18 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.string = text
+        textView.allFileNames = fileNames
+
+        scrollView.documentView = textView
+
         context.coordinator.applyLinkStyling(to: textView)
+
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        let textView = scrollView.documentView as! NSTextView
+        guard let textView = scrollView.documentView as? LinkCompletionTextView else { return }
+        textView.allFileNames = fileNames
         if textView.string != text {
             textView.string = text
             context.coordinator.applyLinkStyling(to: textView)
@@ -92,6 +323,8 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 }
 
+// MARK: - ContentView
+
 struct ContentView: View {
     @AppStorage("vaultBookmark") private var vaultBookmarkData: Data = Data()
     @State private var vaultURL: URL?
@@ -109,6 +342,10 @@ struct ContentView: View {
         return markdownFiles.filter {
             $0.lastPathComponent.localizedCaseInsensitiveContains(searchQuery)
         }
+    }
+
+    var fileNames: [String] {
+        markdownFiles.map { $0.deletingPathExtension().lastPathComponent }
     }
 
     var body: some View {
@@ -151,7 +388,7 @@ struct ContentView: View {
     private var editorView: some View {
         Group {
             if openFileURL != nil {
-                MarkdownTextView(text: $fileContent) { linkName in
+                MarkdownTextView(text: $fileContent, fileNames: fileNames) { linkName in
                     openLinkedFile(linkName)
                 }
                 .onChange(of: fileContent) {
