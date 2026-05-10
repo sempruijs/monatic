@@ -15,7 +15,7 @@ class VaultGraph {
     private var outLinks: [String: Set<String>] = [:]
     private var inLinks: [String: Set<String>] = [:]
 
-    private static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+    static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
 
     var sortedNames: [String] { files.map(\.name) }
 
@@ -165,6 +165,7 @@ struct CompletionListView: View {
 
 class LinkCompletionTextView: NSTextView {
     var allFileNames: [String] = []
+    var onFollowLink: ((String) -> Void)?
     let completionState = CompletionState()
 
     private var completionPanel: NSPanel?
@@ -185,6 +186,13 @@ class LinkCompletionTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 && event.modifierFlags.contains(.command) {
+            if let linkName = linkNameAtCursor() {
+                onFollowLink?(linkName)
+                return
+            }
+        }
+
         if isCompletionVisible {
             switch event.keyCode {
             case 125: // down
@@ -211,6 +219,20 @@ class LinkCompletionTextView: NSTextView {
             }
         }
         super.keyDown(with: event)
+    }
+
+    private func linkNameAtCursor() -> String? {
+        let cursor = selectedRange().location
+        let nsString = string as NSString
+        let fullRange = NSRange(location: 0, length: nsString.length)
+        let matches = VaultGraph.linkPattern.matches(in: string, range: fullRange)
+        for match in matches {
+            let matchRange = match.range(at: 0)
+            if cursor >= matchRange.location && cursor <= matchRange.location + matchRange.length {
+                return nsString.substring(with: match.range(at: 1))
+            }
+        }
+        return nil
     }
 
     private func updateCompletion() {
@@ -374,6 +396,7 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.string = text
         textView.allFileNames = fileNames
+        textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
 
         scrollView.documentView = textView
 
@@ -387,6 +410,7 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.allFileNames = fileNames
         context.coordinator.onOpenLink = onOpenLink
         context.coordinator.onTextChange = onTextChange
+        textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
         if textView.string != text {
             textView.string = text
             context.coordinator.applyLinkStyling(to: textView)
