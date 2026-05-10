@@ -1,6 +1,98 @@
 import Combine
 import SwiftUI
 
+// MARK: - VaultGraph
+
+@Observable
+class VaultGraph {
+    struct FileEntry {
+        let name: String
+        let url: URL
+    }
+
+    private(set) var files: [FileEntry] = []
+    private var filesByName: [String: FileEntry] = [:]
+    private var outLinks: [String: Set<String>] = [:]
+    private var inLinks: [String: Set<String>] = [:]
+
+    private static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+
+    var sortedNames: [String] { files.map(\.name) }
+
+    func build(from vaultURL: URL) {
+        filesByName.removeAll()
+        outLinks.removeAll()
+        inLinks.removeAll()
+
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: vaultURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "md" else { continue }
+            let name = url.deletingPathExtension().lastPathComponent
+            filesByName[name] = FileEntry(name: name, url: url)
+
+            if let content = try? String(contentsOf: url, encoding: .utf8) {
+                let links = Self.parseLinks(from: content)
+                outLinks[name] = links
+                for link in links {
+                    inLinks[link, default: []].insert(name)
+                }
+            }
+        }
+
+        files = filesByName.values.sorted {
+            $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+    }
+
+    func search(_ query: String) -> [FileEntry] {
+        if query.isEmpty { return files }
+        return files.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    func url(for name: String) -> URL? {
+        filesByName[name]?.url
+    }
+
+    func outgoing(from name: String) -> Set<String> {
+        outLinks[name] ?? []
+    }
+
+    func incoming(to name: String) -> Set<String> {
+        inLinks[name] ?? []
+    }
+
+    func updateLinks(for name: String, content: String) {
+        let oldLinks = outLinks[name] ?? []
+        let newLinks = Self.parseLinks(from: content)
+        guard oldLinks != newLinks else { return }
+
+        for link in oldLinks where !newLinks.contains(link) {
+            inLinks[link]?.remove(name)
+        }
+        for link in newLinks where !oldLinks.contains(link) {
+            inLinks[link, default: []].insert(name)
+        }
+        outLinks[name] = newLinks
+    }
+
+    private static func parseLinks(from content: String) -> Set<String> {
+        let nsContent = content as NSString
+        let range = NSRange(location: 0, length: nsContent.length)
+        let matches = linkPattern.matches(in: content, range: range)
+        var links = Set<String>()
+        for match in matches {
+            links.insert(nsContent.substring(with: match.range(at: 1)))
+        }
+        return links
+    }
+}
+
 // MARK: - Completion
 
 class CompletionState: ObservableObject {
@@ -113,11 +205,11 @@ class LinkCompletionTextView: NSTextView {
         }
 
         let query = afterOpen
-        let filtered: [String]
+        let filtered: ArraySlice<String>
         if query.isEmpty {
-            filtered = allFileNames
+            filtered = allFileNames.prefix(20)
         } else {
-            filtered = allFileNames.filter { $0.localizedCaseInsensitiveContains(query) }
+            filtered = allFileNames.lazy.filter { $0.localizedCaseInsensitiveContains(query) }.prefix(20)
         }
 
         if filtered.isEmpty {
@@ -125,8 +217,11 @@ class LinkCompletionTextView: NSTextView {
             return
         }
 
-        completionState.items = filtered
-        completionState.selectedIndex = 0
+        let items = Array(filtered)
+        if completionState.items != items {
+            completionState.items = items
+            completionState.selectedIndex = 0
+        }
         showCompletionPanel()
     }
 
@@ -150,7 +245,9 @@ class LinkCompletionTextView: NSTextView {
             ),
             display: true
         )
-        completionPanel?.orderFront(nil)
+        if !isCompletionVisible {
+            completionPanel?.orderFront(nil)
+        }
     }
 
     private func setupCompletionPanel() {
@@ -327,25 +424,16 @@ struct MarkdownTextView: NSViewRepresentable {
 
 struct ContentView: View {
     @AppStorage("vaultBookmark") private var vaultBookmarkData: Data = Data()
+    @State private var graph = VaultGraph()
     @State private var vaultURL: URL?
     @State private var openFileURL: URL?
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
     @State private var searchQuery: String = ""
-    @State private var markdownFiles: [URL] = []
     @FocusState private var isSearchFocused: Bool
 
-    var filteredFiles: [URL] {
-        if searchQuery.isEmpty {
-            return markdownFiles
-        }
-        return markdownFiles.filter {
-            $0.lastPathComponent.localizedCaseInsensitiveContains(searchQuery)
-        }
-    }
-
-    var fileNames: [String] {
-        markdownFiles.map { $0.deletingPathExtension().lastPathComponent }
+    var filteredFiles: [VaultGraph.FileEntry] {
+        graph.search(searchQuery)
     }
 
     var body: some View {
@@ -367,7 +455,6 @@ struct ContentView: View {
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .onChange(of: showQuickOpen) { _, newValue in
             if newValue {
-                loadMarkdownFiles()
                 isSearchFocused = true
             }
         }
@@ -388,11 +475,14 @@ struct ContentView: View {
     private var editorView: some View {
         Group {
             if openFileURL != nil {
-                MarkdownTextView(text: $fileContent, fileNames: fileNames) { linkName in
+                MarkdownTextView(text: $fileContent, fileNames: graph.sortedNames) { linkName in
                     openLinkedFile(linkName)
                 }
                 .onChange(of: fileContent) {
                     saveCurrentFile()
+                    if let name = openFileURL?.deletingPathExtension().lastPathComponent {
+                        graph.updateLinks(for: name, content: fileContent)
+                    }
                 }
             } else {
                 Text("Press ⌘O to open a file")
@@ -412,7 +502,7 @@ struct ContentView: View {
                     .focused($isSearchFocused)
                     .onSubmit {
                         if let first = filteredFiles.first {
-                            openFile(first)
+                            openFile(first.url)
                         }
                     }
 
@@ -420,11 +510,11 @@ struct ContentView: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(filteredFiles, id: \.self) { file in
+                        ForEach(filteredFiles, id: \.name) { file in
                             Button {
-                                openFile(file)
+                                openFile(file.url)
                             } label: {
-                                Text(file.lastPathComponent)
+                                Text(file.name)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
@@ -466,7 +556,7 @@ struct ContentView: View {
             let bookmark = try url.bookmarkData(options: .withSecurityScope)
             vaultBookmarkData = bookmark
             vaultURL = url
-            loadMarkdownFiles()
+            graph.build(from: url)
         } catch {}
     }
 
@@ -481,29 +571,11 @@ struct ContentView: View {
             )
             guard url.startAccessingSecurityScopedResource() else { return }
             vaultURL = url
-            loadMarkdownFiles()
+            graph.build(from: url)
             if isStale {
                 vaultBookmarkData = try url.bookmarkData(options: .withSecurityScope)
             }
         } catch {}
-    }
-
-    private func loadMarkdownFiles() {
-        guard let vault = vaultURL else { return }
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: vault,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-
-        var files: [URL] = []
-        for case let url as URL in enumerator {
-            if url.pathExtension == "md" {
-                files.append(url)
-            }
-        }
-        markdownFiles = files.sorted { $0.lastPathComponent.localizedCompare($1.lastPathComponent) == .orderedAscending }
     }
 
     private func openFile(_ url: URL) {
@@ -515,8 +587,8 @@ struct ContentView: View {
     }
 
     private func openLinkedFile(_ name: String) {
-        if let target = markdownFiles.first(where: { $0.deletingPathExtension().lastPathComponent == name }) {
-            openFile(target)
+        if let url = graph.url(for: name) {
+            openFile(url)
         }
     }
 
