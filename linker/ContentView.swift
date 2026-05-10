@@ -67,6 +67,14 @@ class VaultGraph {
         inLinks[name] ?? []
     }
 
+    func addFile(name: String, url: URL) {
+        let entry = FileEntry(name: name, url: url)
+        filesByName[name] = entry
+        files = filesByName.values.sorted {
+            $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+    }
+
     func rename(from oldName: String, to newName: String, newURL: URL) {
         guard let entry = filesByName.removeValue(forKey: oldName) else { return }
         filesByName[newName] = FileEntry(name: newName, url: newURL)
@@ -327,9 +335,10 @@ struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
     var fileNames: [String]
     var onOpenLink: (String) -> Void
+    var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onOpenLink: onOpenLink)
+        Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -376,6 +385,8 @@ struct MarkdownTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? LinkCompletionTextView else { return }
         textView.allFileNames = fileNames
+        context.coordinator.onOpenLink = onOpenLink
+        context.coordinator.onTextChange = onTextChange
         if textView.string != text {
             textView.string = text
             context.coordinator.applyLinkStyling(to: textView)
@@ -385,17 +396,21 @@ struct MarkdownTextView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
+        var onTextChange: ((String) -> Void)?
         private var isUpdating = false
 
-        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void) {
+        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text
             self.onOpenLink = onOpenLink
+            self.onTextChange = onTextChange
         }
 
         func textDidChange(_ notification: Notification) {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
             isUpdating = true
-            text.wrappedValue = textView.string
+            let content = textView.string
+            text.wrappedValue = content
+            onTextChange?(content)
             applyLinkStyling(to: textView)
             isUpdating = false
         }
@@ -453,6 +468,7 @@ struct ContentView: View {
     @State private var searchQuery: String = ""
     @State private var editingTitle: String?
     @FocusState private var isSearchFocused: Bool
+    @FocusState private var isTitleFocused: Bool
     @AccessibilityFocusState private var isSearchA11yFocused: Bool
 
     var filteredFiles: [VaultGraph.FileEntry] {
@@ -476,6 +492,8 @@ struct ContentView: View {
             restoreVault()
         }
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
+        .focusedSceneValue(\.saveAction, saveCurrentFile)
+        .focusedSceneValue(\.newFileAction, createNewFile)
         .onChange(of: showQuickOpen) { _, newValue in
             if newValue {
                 isSearchFocused = true
@@ -504,15 +522,20 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     noteTitleField(for: url)
                     Divider()
-                    MarkdownTextView(text: $fileContent, fileNames: graph.sortedNames) { linkName in
-                        openLinkedFile(linkName)
-                    }
-                    .onChange(of: fileContent) {
-                        saveCurrentFile()
-                        if let name = openFileURL?.deletingPathExtension().lastPathComponent {
-                            graph.updateLinks(for: name, content: fileContent)
+                    MarkdownTextView(
+                        text: $fileContent,
+                        fileNames: graph.sortedNames,
+                        onOpenLink: { openLinkedFile($0) },
+                        onTextChange: { newContent in
+                            fileContent = newContent
+                            if let url = openFileURL {
+                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                            }
+                            if let name = openFileURL?.deletingPathExtension().lastPathComponent {
+                                graph.updateLinks(for: name, content: newContent)
+                            }
                         }
-                    }
+                    )
                 }
             } else {
                 Text("Press ⌘O to open a file")
@@ -533,6 +556,7 @@ struct ContentView: View {
         .fontWeight(.bold)
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
+        .focused($isTitleFocused)
         .onAppear { editingTitle = nil }
         .onSubmit { renameCurrentFile() }
         .onChange(of: openFileURL) { editingTitle = nil }
@@ -600,30 +624,50 @@ struct ContentView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        do {
-            let bookmark = try url.bookmarkData(options: .withSecurityScope)
+        // Use URL directly from NSOpenPanel — it carries sandbox access
+        vaultURL = url
+        graph.build(from: url)
+
+        // Try to persist access for next launch via bookmark
+        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
             vaultBookmarkData = bookmark
-            vaultURL = url
-            graph.build(from: url)
-        } catch {}
+        } else if let bookmark = try? url.bookmarkData() {
+            vaultBookmarkData = bookmark
+        }
     }
 
     private func restoreVault() {
         guard !vaultBookmarkData.isEmpty else { return }
+
+        // Try security-scoped bookmark first
         var isStale = false
-        do {
-            let url = try URL(
-                resolvingBookmarkData: vaultBookmarkData,
-                options: .withSecurityScope,
-                bookmarkDataIsStale: &isStale
-            )
-            guard url.startAccessingSecurityScopedResource() else { return }
+        if let url = try? URL(
+            resolvingBookmarkData: vaultBookmarkData,
+            options: .withSecurityScope,
+            bookmarkDataIsStale: &isStale
+        ), url.startAccessingSecurityScopedResource() {
             vaultURL = url
             graph.build(from: url)
             if isStale {
-                vaultBookmarkData = try url.bookmarkData(options: .withSecurityScope)
+                if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
+                    vaultBookmarkData = bookmark
+                }
             }
-        } catch {}
+            return
+        }
+
+        // Fall back to non-scoped bookmark — will need re-select if sandboxed
+        if let url = try? URL(
+            resolvingBookmarkData: vaultBookmarkData,
+            bookmarkDataIsStale: &isStale
+        ), FileManager.default.isReadableFile(atPath: url.path(percentEncoded: false)) {
+            vaultURL = url
+            graph.build(from: url)
+            return
+        }
+
+        // Bookmark is dead — clear it so user sees vault picker
+        vaultBookmarkData = Data()
     }
 
     private func openFile(_ url: URL) {
@@ -648,6 +692,29 @@ struct ContentView: View {
     private func saveCurrentFile() {
         guard let url = openFileURL else { return }
         try? fileContent.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func createNewFile() {
+        guard let vault = vaultURL else { return }
+        let fm = FileManager.default
+        let name = "Untitled"
+        var url = vault.appendingPathComponent("\(name).md")
+        var counter = 1
+        while fm.fileExists(atPath: url.path(percentEncoded: false)) {
+            url = vault.appendingPathComponent("\(name) \(counter).md")
+            counter += 1
+        }
+        do {
+            try Data().write(to: url)
+        } catch {
+            return
+        }
+        let actualName = url.deletingPathExtension().lastPathComponent
+        graph.addFile(name: actualName, url: url)
+        fileContent = ""
+        openFileURL = url
+        editingTitle = actualName
+        isTitleFocused = true
     }
 
     private func renameCurrentFile() {
