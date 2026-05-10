@@ -470,6 +470,7 @@ struct ContentView: View {
     @FocusState private var isSearchFocused: Bool
     @FocusState private var isTitleFocused: Bool
     @AccessibilityFocusState private var isSearchA11yFocused: Bool
+    @State private var showLinks: Bool = false
 
     var filteredFiles: [VaultGraph.FileEntry] {
         graph.search(searchQuery)
@@ -516,31 +517,91 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var currentNoteName: String? {
+        openFileURL?.deletingPathExtension().lastPathComponent
+    }
+
     private var editorView: some View {
         Group {
             if let url = openFileURL {
-                VStack(spacing: 0) {
-                    noteTitleField(for: url)
-                    Divider()
-                    MarkdownTextView(
-                        text: $fileContent,
-                        fileNames: graph.sortedNames,
-                        onOpenLink: { openLinkedFile($0) },
-                        onTextChange: { newContent in
-                            fileContent = newContent
-                            if let url = openFileURL {
-                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        noteTitleField(for: url)
+                        Divider()
+                        MarkdownTextView(
+                            text: $fileContent,
+                            fileNames: graph.sortedNames,
+                            onOpenLink: { openLinkedFile($0) },
+                            onTextChange: { newContent in
+                                fileContent = newContent
+                                if let url = openFileURL {
+                                    try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                                }
+                                if let name = currentNoteName {
+                                    graph.updateLinks(for: name, content: newContent)
+                                }
                             }
-                            if let name = openFileURL?.deletingPathExtension().lastPathComponent {
-                                graph.updateLinks(for: name, content: newContent)
-                            }
+                        )
+                    }
+
+                    if showLinks {
+                        Divider()
+                        linksSidebar
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            withAnimation { showLinks.toggle() }
+                        } label: {
+                            Label("Links", systemImage: "link")
                         }
-                    )
+                    }
                 }
             } else {
                 Text("Press ⌘O to open a file")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var linksSidebar: some View {
+        let name = currentNoteName ?? ""
+        let outgoing = graph.outgoing(from: name).sorted()
+        let incoming = graph.incoming(to: name).sorted()
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                linkSection(title: "Outgoing", links: outgoing)
+                linkSection(title: "Incoming", links: incoming)
+            }
+            .padding()
+        }
+        .frame(width: 220)
+    }
+
+    private func linkSection(title: String, links: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            if links.isEmpty {
+                Text("None")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(links, id: \.self) { link in
+                    Button {
+                        openLinkedFile(link)
+                    } label: {
+                        Text(link)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
+                }
             }
         }
     }
