@@ -74,46 +74,75 @@ final class SearchIndex: @unchecked Sendable {
             si += 1
         }
 
-        // Greedy forward match to find positions
+        // Try to find a contiguous substring match first
         var positions = [Int](repeating: 0, count: pLen)
-        si = 0
-        for pi in 0..<pLen {
-            let target = p[pi]
-            while s[si] != target { si += 1 }
-            positions[pi] = si
-            si += 1
+        var foundContiguous = false
+        for start in 0...(sLen - pLen) {
+            var match = true
+            for j in 0..<pLen {
+                if s[start + j] != p[j] { match = false; break }
+            }
+            if match {
+                for j in 0..<pLen { positions[j] = start + j }
+                foundContiguous = true
+                break
+            }
+        }
+
+        if !foundContiguous {
+            si = 0
+            for pi in 0..<pLen {
+                let target = p[pi]
+                while s[si] != target { si += 1 }
+                positions[pi] = si
+                si += 1
+            }
         }
 
         // Score the match
         var score = 100
+        let span = pLen > 1 ? (positions[pLen - 1] - positions[0] + 1) : 1
+        let isContiguous = span == pLen
 
-        for i in 0..<pLen {
-            let pos = positions[i]
-
-            if i > 0 && pos == positions[i - 1] + 1 {
-                score += 15 // consecutive match
-            }
-
-            if pos == 0 {
-                score += 30 // first character
+        if isContiguous {
+            score += 100
+            let start = positions[0]
+            if start == 0 {
+                score += 60
             } else {
-                let prev = s[pos - 1]
+                let prev = s[start - 1]
                 if prev == 0x20 || prev == 0x5F || prev == 0x2D || prev == 0x2E {
-                    score += 25 // word boundary
+                    score += 50
                 }
             }
+            if positions[pLen - 1] + 1 == sLen || (positions[pLen - 1] + 1 < sLen && {
+                let next = s[positions[pLen - 1] + 1]
+                return next == 0x20 || next == 0x5F || next == 0x2D || next == 0x2E
+            }()) {
+                score += 20
+            }
+            if pLen == sLen {
+                score += 80
+            }
+        } else {
+            for i in 0..<pLen {
+                let pos = positions[i]
+                if i > 0 && pos == positions[i - 1] + 1 {
+                    score += 15
+                }
+                if pos == 0 {
+                    score += 30
+                } else {
+                    let prev = s[pos - 1]
+                    if prev == 0x20 || prev == 0x5F || prev == 0x2D || prev == 0x2E {
+                        score += 25
+                    }
+                }
+            }
+            score -= (span - pLen) * 2
         }
 
-        // leading gap penalty
         score -= min(positions[0] * 3, 15)
-
-        // total gap penalty
-        if pLen > 1 {
-            let span = positions[pLen - 1] - positions[0] + 1
-            score -= (span - pLen)
-        }
-
-        // shorter names are better matches
         score -= sLen
 
         return score
