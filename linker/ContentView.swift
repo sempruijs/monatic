@@ -125,6 +125,7 @@ struct ContentView: View {
                             text: $fileContent,
                             fileNames: appState.graph.sortedNames,
                             fontSize: appState.fontSize,
+                            wordWrap: appState.wordWrap,
                             onOpenLink: { openLinkedFile($0) },
                             onTextChange: { newContent in
                                 fileContent = newContent

@@ -11,7 +11,7 @@ class VaultGraph {
     private var filesByName: [String: FileEntry] = [:]
     private var outLinks: [String: Set<String>] = [:]
     private var inLinks: [String: Set<String>] = [:]
-    private let searchIndex = SearchIndex()
+    let searchIndex = SearchIndex()
 
     typealias SearchResult = SearchIndex.Result
 

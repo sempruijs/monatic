@@ -5,6 +5,8 @@ private struct AutoFocusTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var onSubmit: () -> Void
+    var onArrowDown: (() -> Void)?
+    var onArrowUp: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -42,6 +44,14 @@ private struct AutoFocusTextField: NSViewRepresentable {
                 parent.onSubmit()
                 return true
             }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onArrowDown?()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onArrowUp?()
+                return true
+            }
             return false
         }
     }
@@ -53,10 +63,9 @@ struct QuickOpenPanel: View {
     var onOpenFile: (URL) -> Void
 
     @State private var searchQuery = ""
-
-    private var searchResults: [VaultGraph.SearchResult] {
-        appState.graph.fuzzySearch(searchQuery)
-    }
+    @State private var searchResults: [SearchIndex.Result] = []
+    @State private var searchTask: Task<Void, Never>?
+    @State private var selectedIndex: Int = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,8 +74,18 @@ struct QuickOpenPanel: View {
                     text: $searchQuery,
                     placeholder: "Search files...",
                     onSubmit: {
-                        if let first = searchResults.first {
-                            select(first.url)
+                        if !searchResults.isEmpty {
+                            select(searchResults[selectedIndex].url)
+                        }
+                    },
+                    onArrowDown: {
+                        if selectedIndex < searchResults.count - 1 {
+                            selectedIndex += 1
+                        }
+                    },
+                    onArrowUp: {
+                        if selectedIndex > 0 {
+                            selectedIndex -= 1
                         }
                     }
                 )
@@ -74,22 +93,30 @@ struct QuickOpenPanel: View {
 
                 Divider()
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(searchResults, id: \.name) { result in
-                            Button {
-                                select(result.url)
-                            } label: {
-                                highlightedText(
-                                    name: result.name,
-                                    highlights: result.highlights
-                                )
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(searchResults.enumerated()), id: \.offset) { index, result in
+                                Button {
+                                    select(result.url)
+                                } label: {
+                                    highlightedText(
+                                        name: result.name,
+                                        highlights: result.highlights
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(index == selectedIndex ? Color.accentColor.opacity(0.2) : Color.clear)
+                                    .cornerRadius(4)
+                                }
+                                .buttonStyle(.plain)
+                                .id(index)
                             }
-                            .buttonStyle(.plain)
                         }
+                    }
+                    .onChange(of: selectedIndex) {
+                        proxy.scrollTo(selectedIndex)
                     }
                 }
                 .frame(maxHeight: 300)
@@ -106,6 +133,24 @@ struct QuickOpenPanel: View {
         .background(Color.black.opacity(0.3))
         .onTapGesture { close() }
         .onExitCommand { close() }
+        .onAppear {
+            searchResults = appState.graph.searchIndex.search("")
+        }
+        .onChange(of: searchQuery) {
+            searchTask?.cancel()
+            let query = searchQuery
+            let index = appState.graph.searchIndex
+            searchTask = Task.detached(priority: .userInitiated) {
+                try? await Task.sleep(for: .milliseconds(30))
+                guard !Task.isCancelled else { return }
+                let results = index.search(query)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.searchResults = results
+                    self.selectedIndex = 0
+                }
+            }
+        }
     }
 
     private func highlightedText(name: String, highlights: [Range<String.Index>]) -> Text {

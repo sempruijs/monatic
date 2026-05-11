@@ -6,6 +6,7 @@ class AppState {
     var graph = VaultGraph()
     var vaultURL: URL?
     var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
+    var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
     private var hasRestored = false
 
     func increaseFontSize() {

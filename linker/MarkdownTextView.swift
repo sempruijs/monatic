@@ -230,19 +230,21 @@ struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
     var fileNames: [String]
     var fontSize: CGFloat = 14
+    var wordWrap: Bool = true
     var onOpenLink: (String) -> Void
     var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
         coordinator.fontSize = fontSize
+        coordinator.wordWrap = wordWrap
         return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = !wordWrap
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
@@ -251,16 +253,17 @@ struct MarkdownTextView: NSViewRepresentable {
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         textStorage.addLayoutManager(layoutManager)
-        let textContainer = NSTextContainer(size: NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude))
-        textContainer.widthTracksTextView = true
+        let containerWidth = wordWrap ? contentSize.width : CGFloat.greatestFiniteMagnitude
+        let textContainer = NSTextContainer(size: NSSize(width: containerWidth, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = wordWrap
         layoutManager.addTextContainer(textContainer)
 
         let textView = LinkCompletionTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
+        textView.isHorizontallyResizable = !wordWrap
+        textView.autoresizingMask = wordWrap ? [.width] : []
         textView.delegate = context.coordinator
         textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.isAutomaticLinkDetectionEnabled = false
@@ -291,10 +294,30 @@ struct MarkdownTextView: NSViewRepresentable {
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
 
+        let wrapChanged = context.coordinator.wordWrap != wordWrap
+        context.coordinator.wordWrap = wordWrap
+
+        if wrapChanged {
+            scrollView.hasHorizontalScroller = !wordWrap
+            if let textContainer = textView.textContainer {
+                textContainer.widthTracksTextView = wordWrap
+                textContainer.size = NSSize(
+                    width: wordWrap ? scrollView.contentSize.width : CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+            }
+            textView.isHorizontallyResizable = !wordWrap
+            textView.autoresizingMask = wordWrap ? [.width] : []
+            if wordWrap {
+                textView.frame.size.width = scrollView.contentSize.width
+            }
+            textView.needsLayout = true
+        }
+
         if textView.string != text {
             textView.string = text
             context.coordinator.applyLinkStyling(to: textView)
-        } else if fontChanged {
+        } else if fontChanged || wrapChanged {
             context.coordinator.applyLinkStyling(to: textView)
         }
     }
@@ -304,6 +327,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var onOpenLink: (String) -> Void
         var onTextChange: ((String) -> Void)?
         var fontSize: CGFloat = 14
+        var wordWrap: Bool = true
         private var isUpdating = false
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {

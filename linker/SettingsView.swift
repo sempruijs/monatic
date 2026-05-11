@@ -17,12 +17,16 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .frame(width: 45, alignment: .trailing)
                 }
+                Toggle("Word Wrap", isOn: $appState.wordWrap)
             }
         }
         .formStyle(.grouped)
         .frame(width: 400)
         .onChange(of: appState.fontSize) {
             UserDefaults.standard.set(appState.fontSize, forKey: "fontSize")
+        }
+        .onChange(of: appState.wordWrap) {
+            UserDefaults.standard.set(appState.wordWrap, forKey: "wordWrap")
         }
     }
 }
