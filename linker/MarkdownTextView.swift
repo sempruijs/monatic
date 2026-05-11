@@ -229,11 +229,14 @@ class LinkCompletionTextView: NSTextView {
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
     var fileNames: [String]
+    var fontSize: CGFloat = 14
     var onOpenLink: (String) -> Void
     var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
+        let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
+        coordinator.fontSize = fontSize
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -259,7 +262,7 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.delegate = context.coordinator
-        textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.isAutomaticLinkDetectionEnabled = false
         textView.allowsUndo = true
         textView.isEditable = true
@@ -284,8 +287,14 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onOpenLink = onOpenLink
         context.coordinator.onTextChange = onTextChange
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
+
+        let fontChanged = context.coordinator.fontSize != fontSize
+        context.coordinator.fontSize = fontSize
+
         if textView.string != text {
             textView.string = text
+            context.coordinator.applyLinkStyling(to: textView)
+        } else if fontChanged {
             context.coordinator.applyLinkStyling(to: textView)
         }
     }
@@ -294,6 +303,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
         var onTextChange: ((String) -> Void)?
+        var fontSize: CGFloat = 14
         private var isUpdating = false
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
@@ -332,7 +342,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textStorage.addAttribute(.foregroundColor, value: NSColor.textColor, range: fullRange)
             textStorage.addAttribute(
                 .font,
-                value: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
                 range: fullRange
             )
 

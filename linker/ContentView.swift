@@ -17,8 +17,10 @@ private struct WindowConfigurator: NSViewRepresentable {
                 window.makeKeyAndOrderFront(nil)
             }
 
-            if !(window.tabGroup?.isTabBarVisible ?? false) {
-                window.toggleTabBar(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if !(window.tabGroup?.isTabBarVisible ?? false) {
+                    window.toggleTabBar(nil)
+                }
             }
         }
         return view
@@ -96,6 +98,8 @@ struct ContentView: View {
         .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
         .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
         .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
+        .focusedSceneValue(\.increaseFontAction) { appState.increaseFontSize() }
+        .focusedSceneValue(\.decreaseFontAction) { appState.decreaseFontSize() }
     }
 
     private var selectVaultView: some View {
@@ -120,6 +124,7 @@ struct ContentView: View {
                         MarkdownTextView(
                             text: $fileContent,
                             fileNames: appState.graph.sortedNames,
+                            fontSize: appState.fontSize,
                             onOpenLink: { openLinkedFile($0) },
                             onTextChange: { newContent in
                                 fileContent = newContent
@@ -214,8 +219,7 @@ struct ContentView: View {
             set: { editingTitle = $0 }
         ))
         .textFieldStyle(.plain)
-        .font(.title)
-        .fontWeight(.bold)
+        .font(.system(size: appState.fontSize * 1.5, weight: .bold))
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .focused($isTitleFocused)

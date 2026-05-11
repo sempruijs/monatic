@@ -24,6 +24,14 @@ private struct GoForwardActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct IncreaseFontActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct DecreaseFontActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -54,6 +62,16 @@ extension FocusedValues {
         get { self[GoForwardActionKey.self] }
         set { self[GoForwardActionKey.self] = newValue }
     }
+
+    var increaseFontAction: (() -> Void)? {
+        get { self[IncreaseFontActionKey.self] }
+        set { self[IncreaseFontActionKey.self] = newValue }
+    }
+
+    var decreaseFontAction: (() -> Void)? {
+        get { self[DecreaseFontActionKey.self] }
+        set { self[DecreaseFontActionKey.self] = newValue }
+    }
 }
 
 @main
@@ -65,6 +83,8 @@ struct linkerApp: App {
     @FocusedValue(\.newTabAction) var newTabAction
     @FocusedValue(\.goBackAction) var goBackAction
     @FocusedValue(\.goForwardAction) var goForwardAction
+    @FocusedValue(\.increaseFontAction) var increaseFontAction
+    @FocusedValue(\.decreaseFontAction) var decreaseFontAction
 
     var body: some Scene {
         WindowGroup(id: "editor") {
@@ -113,6 +133,19 @@ struct linkerApp: App {
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(goForwardAction == nil)
             }
+            CommandGroup(after: .toolbar) {
+                Button("Increase Size") {
+                    increaseFontAction?()
+                }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(increaseFontAction == nil)
+
+                Button("Decrease Size") {
+                    decreaseFontAction?()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(decreaseFontAction == nil)
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
                     saveAction?()
@@ -120,6 +153,11 @@ struct linkerApp: App {
                 .keyboardShortcut("s")
                 .disabled(saveAction == nil)
             }
+        }
+
+        Settings {
+            SettingsView()
+                .environment(appState)
         }
     }
 }

@@ -5,7 +5,18 @@ import Foundation
 class AppState {
     var graph = VaultGraph()
     var vaultURL: URL?
+    var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
     private var hasRestored = false
+
+    func increaseFontSize() {
+        fontSize = min(fontSize + 1, 48)
+        UserDefaults.standard.set(fontSize, forKey: "fontSize")
+    }
+
+    func decreaseFontSize() {
+        fontSize = max(fontSize - 1, 8)
+        UserDefaults.standard.set(fontSize, forKey: "fontSize")
+    }
 
     func restoreVaultIfNeeded() {
         guard !hasRestored else { return }
