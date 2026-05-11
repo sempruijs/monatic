@@ -28,6 +28,34 @@ private struct WindowConfigurator: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+@Observable
+class NavigationHistory {
+    private var stack: [URL] = []
+    private var currentIndex: Int = -1
+
+    var canGoBack: Bool { currentIndex > 0 }
+    var canGoForward: Bool { currentIndex < stack.count - 1 }
+
+    func visit(_ url: URL) {
+        if currentIndex >= 0, currentIndex < stack.count, stack[currentIndex] == url { return }
+        stack.removeSubrange((currentIndex + 1)...)
+        stack.append(url)
+        currentIndex = stack.count - 1
+    }
+
+    func goBack() -> URL? {
+        guard canGoBack else { return nil }
+        currentIndex -= 1
+        return stack[currentIndex]
+    }
+
+    func goForward() -> URL? {
+        guard canGoForward else { return nil }
+        currentIndex += 1
+        return stack[currentIndex]
+    }
+}
+
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openWindow) private var openWindow
@@ -40,6 +68,7 @@ struct ContentView: View {
     @FocusState private var isTitleFocused: Bool
     @AccessibilityFocusState private var isSearchA11yFocused: Bool
     @State private var showLinks: Bool = false
+    @State private var history = NavigationHistory()
 
     var filteredFiles: [VaultGraph.FileEntry] {
         appState.graph.search(searchQuery)
@@ -74,6 +103,8 @@ struct ContentView: View {
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
         .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
+        .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
+        .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
         .onChange(of: showQuickOpen) { _, newValue in
             if newValue {
                 isSearchFocused = true
@@ -125,6 +156,18 @@ struct ContentView: View {
                     }
                 }
                 .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button(action: goBack) {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .disabled(!history.canGoBack)
+                    }
+                    ToolbarItem(placement: .navigation) {
+                        Button(action: goForward) {
+                            Label("Forward", systemImage: "chevron.right")
+                        }
+                        .disabled(!history.canGoForward)
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             withAnimation { showLinks.toggle() }
@@ -257,8 +300,25 @@ struct ContentView: View {
         do {
             fileContent = try String(contentsOf: url, encoding: .utf8)
             openFileURL = url
+            history.visit(url)
         } catch {}
         closeQuickOpen()
+    }
+
+    private func goBack() {
+        guard let url = history.goBack() else { return }
+        do {
+            fileContent = try String(contentsOf: url, encoding: .utf8)
+            openFileURL = url
+        } catch {}
+    }
+
+    private func goForward() {
+        guard let url = history.goForward() else { return }
+        do {
+            fileContent = try String(contentsOf: url, encoding: .utf8)
+            openFileURL = url
+        } catch {}
     }
 
     private func openLinkedFile(_ name: String) {

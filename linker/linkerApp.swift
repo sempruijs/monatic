@@ -16,6 +16,14 @@ private struct NewTabActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct GoBackActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct GoForwardActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -36,6 +44,16 @@ extension FocusedValues {
         get { self[NewTabActionKey.self] }
         set { self[NewTabActionKey.self] = newValue }
     }
+
+    var goBackAction: (() -> Void)? {
+        get { self[GoBackActionKey.self] }
+        set { self[GoBackActionKey.self] = newValue }
+    }
+
+    var goForwardAction: (() -> Void)? {
+        get { self[GoForwardActionKey.self] }
+        set { self[GoForwardActionKey.self] = newValue }
+    }
 }
 
 @main
@@ -45,6 +63,8 @@ struct linkerApp: App {
     @FocusedValue(\.saveAction) var saveAction
     @FocusedValue(\.newFileAction) var newFileAction
     @FocusedValue(\.newTabAction) var newTabAction
+    @FocusedValue(\.goBackAction) var goBackAction
+    @FocusedValue(\.goForwardAction) var goForwardAction
 
     var body: some Scene {
         WindowGroup(id: "editor") {
@@ -79,6 +99,19 @@ struct linkerApp: App {
                     NSApp.keyWindow?.performClose(nil)
                 }
                 .keyboardShortcut("w")
+            }
+            CommandGroup(before: .toolbar) {
+                Button("Back") {
+                    goBackAction?()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(goBackAction == nil)
+
+                Button("Forward") {
+                    goForwardAction?()
+                }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(goForwardAction == nil)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
