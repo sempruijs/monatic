@@ -1,9 +1,36 @@
 import SwiftUI
 
+private struct WindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.tabbingMode = .preferred
+
+            // If another editor window exists, join it as a tab
+            if let existing = NSApp.windows.first(where: {
+                $0 !== window &&
+                $0.isVisible &&
+                $0.tabbingIdentifier == window.tabbingIdentifier &&
+                $0.tabGroup !== window.tabGroup
+            }) {
+                existing.addTabbedWindow(window, ordered: .above)
+                window.makeKeyAndOrderFront(nil)
+            }
+
+            // Always show the tab bar
+            if !(window.tabGroup?.isTabBarVisible ?? false) {
+                window.toggleTabBar(nil)
+            }
+        }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 struct ContentView: View {
-    @AppStorage("vaultBookmark") private var vaultBookmarkData: Data = Data()
-    @State private var graph = VaultGraph()
-    @State private var vaultURL: URL?
+    @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
     @State private var openFileURL: URL?
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
@@ -15,12 +42,16 @@ struct ContentView: View {
     @State private var showLinks: Bool = false
 
     var filteredFiles: [VaultGraph.FileEntry] {
-        graph.search(searchQuery)
+        appState.graph.search(searchQuery)
+    }
+
+    private var currentNoteName: String? {
+        openFileURL?.deletingPathExtension().lastPathComponent
     }
 
     var body: some View {
         ZStack {
-            if vaultURL != nil {
+            if appState.vaultURL != nil {
                 editorView
             } else {
                 selectVaultView
@@ -32,11 +63,13 @@ struct ContentView: View {
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
-            restoreVault()
+            appState.restoreVaultIfNeeded()
         }
+        .background(WindowConfigurator())
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
+        .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
         .onChange(of: showQuickOpen) { _, newValue in
             if newValue {
                 isSearchFocused = true
@@ -53,14 +86,10 @@ struct ContentView: View {
                 .font(.title2)
                 .foregroundStyle(.secondary)
             Button("Select Vault Folder") {
-                selectVault()
+                appState.selectVault()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var currentNoteName: String? {
-        openFileURL?.deletingPathExtension().lastPathComponent
     }
 
     private var editorView: some View {
@@ -72,7 +101,7 @@ struct ContentView: View {
                         Divider()
                         MarkdownTextView(
                             text: $fileContent,
-                            fileNames: graph.sortedNames,
+                            fileNames: appState.graph.sortedNames,
                             onOpenLink: { openLinkedFile($0) },
                             onTextChange: { newContent in
                                 fileContent = newContent
@@ -80,7 +109,7 @@ struct ContentView: View {
                                     try? newContent.write(to: url, atomically: true, encoding: .utf8)
                                 }
                                 if let name = currentNoteName {
-                                    graph.updateLinks(for: name, content: newContent)
+                                    appState.graph.updateLinks(for: name, content: newContent)
                                 }
                             }
                         )
@@ -101,7 +130,7 @@ struct ContentView: View {
                     }
                 }
             } else {
-                Text("Press ⌘O to open a file")
+                Text("Press \u{2318}O to open a file")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -110,8 +139,8 @@ struct ContentView: View {
 
     private var linksSidebar: some View {
         let name = currentNoteName ?? ""
-        let outgoing = graph.outgoing(from: name).sorted()
-        let incoming = graph.incoming(to: name).sorted()
+        let outgoing = appState.graph.outgoing(from: name).sorted()
+        let incoming = appState.graph.incoming(to: name).sorted()
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -218,55 +247,7 @@ struct ContentView: View {
         }
     }
 
-    private func selectVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select your vault folder"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        vaultURL = url
-        graph.build(from: url)
-
-        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-            vaultBookmarkData = bookmark
-        } else if let bookmark = try? url.bookmarkData() {
-            vaultBookmarkData = bookmark
-        }
-    }
-
-    private func restoreVault() {
-        guard !vaultBookmarkData.isEmpty else { return }
-
-        var isStale = false
-        if let url = try? URL(
-            resolvingBookmarkData: vaultBookmarkData,
-            options: .withSecurityScope,
-            bookmarkDataIsStale: &isStale
-        ), url.startAccessingSecurityScopedResource() {
-            vaultURL = url
-            graph.build(from: url)
-            if isStale {
-                if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-                    vaultBookmarkData = bookmark
-                }
-            }
-            return
-        }
-
-        if let url = try? URL(
-            resolvingBookmarkData: vaultBookmarkData,
-            bookmarkDataIsStale: &isStale
-        ), FileManager.default.isReadableFile(atPath: url.path(percentEncoded: false)) {
-            vaultURL = url
-            graph.build(from: url)
-            return
-        }
-
-        vaultBookmarkData = Data()
-    }
+    // MARK: - Actions
 
     private func openFile(_ url: URL) {
         do {
@@ -277,7 +258,7 @@ struct ContentView: View {
     }
 
     private func openLinkedFile(_ name: String) {
-        if let url = graph.url(for: name) {
+        if let url = appState.graph.url(for: name) {
             openFile(url)
         }
     }
@@ -293,7 +274,7 @@ struct ContentView: View {
     }
 
     private func createNewFile() {
-        guard let vault = vaultURL else { return }
+        guard let vault = appState.vaultURL else { return }
         let fm = FileManager.default
         let name = "Untitled"
         var url = vault.appendingPathComponent("\(name).md")
@@ -308,7 +289,7 @@ struct ContentView: View {
             return
         }
         let actualName = url.deletingPathExtension().lastPathComponent
-        graph.addFile(name: actualName, url: url)
+        appState.graph.addFile(name: actualName, url: url)
         fileContent = ""
         openFileURL = url
         editingTitle = actualName
@@ -333,7 +314,7 @@ struct ContentView: View {
         do {
             try FileManager.default.moveItem(at: oldURL, to: newURL)
             openFileURL = newURL
-            graph.rename(from: oldName, to: newTitle, newURL: newURL)
+            appState.graph.rename(from: oldName, to: newTitle, newURL: newURL)
             editingTitle = nil
         } catch {}
     }
@@ -341,4 +322,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environment(AppState())
 }

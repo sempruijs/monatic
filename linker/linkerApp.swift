@@ -12,6 +12,10 @@ private struct NewFileActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct NewTabActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -27,17 +31,25 @@ extension FocusedValues {
         get { self[NewFileActionKey.self] }
         set { self[NewFileActionKey.self] = newValue }
     }
+
+    var newTabAction: (() -> Void)? {
+        get { self[NewTabActionKey.self] }
+        set { self[NewTabActionKey.self] = newValue }
+    }
 }
 
 @main
 struct linkerApp: App {
+    @State private var appState = AppState()
     @FocusedBinding(\.showQuickOpen) var showQuickOpen
     @FocusedValue(\.saveAction) var saveAction
     @FocusedValue(\.newFileAction) var newFileAction
+    @FocusedValue(\.newTabAction) var newTabAction
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "editor") {
             ContentView()
+                .environment(appState)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -47,6 +59,12 @@ struct linkerApp: App {
                 .keyboardShortcut("n")
                 .disabled(newFileAction == nil)
 
+                Button("New Tab") {
+                    newTabAction?()
+                }
+                .keyboardShortcut("t")
+                .disabled(newTabAction == nil)
+
                 Divider()
 
                 Button("Quick Open") {
@@ -54,6 +72,13 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("o")
                 .disabled(showQuickOpen == nil)
+            }
+            CommandGroup(after: .newItem) {
+                Divider()
+                Button("Close Tab") {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+                .keyboardShortcut("w")
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
