@@ -1,51 +1,4 @@
-import AppKit
 import SwiftUI
-
-private struct AutoFocusTextField: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String
-    var onSubmit: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
-        field.placeholderString = placeholder
-        field.isBordered = false
-        field.drawsBackground = false
-        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
-        field.focusRingType = .none
-        field.delegate = context.coordinator
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-        }
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: AutoFocusTextField
-        init(_ parent: AutoFocusTextField) { self.parent = parent }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
-            }
-            return false
-        }
-    }
-}
 
 private struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -54,7 +7,6 @@ private struct WindowConfigurator: NSViewRepresentable {
             guard let window = view.window else { return }
             window.tabbingMode = .preferred
 
-            // If another editor window exists, join it as a tab
             if let existing = NSApp.windows.first(where: {
                 $0 !== window &&
                 $0.isVisible &&
@@ -65,7 +17,6 @@ private struct WindowConfigurator: NSViewRepresentable {
                 window.makeKeyAndOrderFront(nil)
             }
 
-            // Always show the tab bar
             if !(window.tabGroup?.isTabBarVisible ?? false) {
                 window.toggleTabBar(nil)
             }
@@ -109,15 +60,10 @@ struct ContentView: View {
     @State private var openFileURL: URL?
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
-    @State private var searchQuery: String = ""
     @State private var editingTitle: String?
     @FocusState private var isTitleFocused: Bool
     @State private var showLinks: Bool = false
     @State private var history = NavigationHistory()
-
-    var filteredFiles: [VaultGraph.FileEntry] {
-        appState.graph.search(searchQuery)
-    }
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
@@ -132,7 +78,7 @@ struct ContentView: View {
             }
 
             if showQuickOpen {
-                quickOpenOverlay
+                QuickOpenPanel(isPresented: $showQuickOpen, onOpenFile: openFile)
             }
         }
         .frame(minWidth: 600, minHeight: 400)
@@ -278,57 +224,6 @@ struct ContentView: View {
         .onChange(of: openFileURL) { editingTitle = nil }
     }
 
-    private var quickOpenOverlay: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                AutoFocusTextField(
-                    text: $searchQuery,
-                    placeholder: "Search files...",
-                    onSubmit: {
-                        if let first = filteredFiles.first {
-                            openFile(first.url)
-                        }
-                    }
-                )
-                    .padding(12)
-
-                Divider()
-
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(filteredFiles, id: \.name) { file in
-                            Button {
-                                openFile(file.url)
-                            } label: {
-                                Text(file.name)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxHeight: 300)
-            }
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .shadow(radius: 20)
-            .frame(width: 500)
-            .padding(.top, 50)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.3))
-        .onTapGesture {
-            closeQuickOpen()
-        }
-        .onExitCommand {
-            closeQuickOpen()
-        }
-    }
-
     // MARK: - Actions
 
     private func openFile(_ url: URL) {
@@ -337,7 +232,7 @@ struct ContentView: View {
             openFileURL = url
             history.visit(url)
         } catch {}
-        closeQuickOpen()
+        showQuickOpen = false
     }
 
     private func goBack() {
@@ -360,11 +255,6 @@ struct ContentView: View {
         if let url = appState.graph.url(for: name) {
             openFile(url)
         }
-    }
-
-    private func closeQuickOpen() {
-        showQuickOpen = false
-        searchQuery = ""
     }
 
     private func saveCurrentFile() {
