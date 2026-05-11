@@ -57,6 +57,114 @@ private struct AutoFocusTextField: NSViewRepresentable {
     }
 }
 
+private struct ResultsTableView: NSViewRepresentable {
+    var results: [SearchIndex.Result]
+    var selectedIndex: Int
+    var onSelect: (URL) -> Void
+    var onSelectionChanged: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        let tableView = NSTableView()
+        let column = NSTableColumn(identifier: .init("name"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.rowHeight = 28
+        tableView.style = .plain
+        tableView.backgroundColor = .clear
+        tableView.selectionHighlightStyle = .regular
+        tableView.allowsEmptySelection = false
+        tableView.dataSource = context.coordinator
+        tableView.delegate = context.coordinator
+        tableView.action = #selector(Coordinator.rowClicked(_:))
+        tableView.target = context.coordinator
+        tableView.refusesFirstResponder = true
+
+        scrollView.documentView = tableView
+        context.coordinator.tableView = tableView
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let tableView = context.coordinator.tableView else { return }
+        context.coordinator.parent = self
+
+        let oldNames = context.coordinator.cachedNames
+        let newNames = results.map(\.name)
+        if oldNames != newNames {
+            context.coordinator.cachedNames = newNames
+            context.coordinator.cachedAttr = results.map { Self.highlightedString(for: $0) }
+            tableView.reloadData()
+        }
+
+        if !results.isEmpty && selectedIndex >= 0 && selectedIndex < results.count
+            && tableView.selectedRow != selectedIndex
+        {
+            tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
+            tableView.scrollRowToVisible(selectedIndex)
+        }
+    }
+
+    static func highlightedString(for result: SearchIndex.Result) -> NSAttributedString {
+        let name = result.name
+        let str = NSMutableAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+        ])
+        for range in result.highlights {
+            let nsRange = NSRange(range, in: name)
+            str.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 13), range: nsRange)
+        }
+        return str
+    }
+
+    class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        var parent: ResultsTableView
+        weak var tableView: NSTableView?
+        var cachedNames: [String] = []
+        var cachedAttr: [NSAttributedString] = []
+
+        init(_ parent: ResultsTableView) { self.parent = parent }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            cachedAttr.count
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard row < cachedAttr.count else { return nil }
+            let cellID = NSUserInterfaceItemIdentifier("ResultCell")
+            let cell: NSTextField
+            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? NSTextField {
+                cell = existing
+            } else {
+                cell = NSTextField(labelWithString: "")
+                cell.identifier = cellID
+                cell.lineBreakMode = .byTruncatingTail
+                cell.drawsBackground = false
+                cell.isBordered = false
+            }
+            cell.attributedStringValue = cachedAttr[row]
+            return cell
+        }
+
+        @objc func rowClicked(_ sender: Any?) {
+            guard let tableView = tableView else { return }
+            let row = tableView.clickedRow
+            if row >= 0 && row < parent.results.count {
+                parent.onSelect(parent.results[row].url)
+            }
+        }
+    }
+}
+
 struct QuickOpenPanel: View {
     @Environment(AppState.self) private var appState
     @Binding var isPresented: Bool
@@ -93,32 +201,12 @@ struct QuickOpenPanel: View {
 
                 Divider()
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(searchResults.enumerated()), id: \.offset) { index, result in
-                                Button {
-                                    select(result.url)
-                                } label: {
-                                    highlightedText(
-                                        name: result.name,
-                                        highlights: result.highlights
-                                    )
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(index == selectedIndex ? Color.accentColor.opacity(0.2) : Color.clear)
-                                    .cornerRadius(4)
-                                }
-                                .buttonStyle(.plain)
-                                .id(index)
-                            }
-                        }
-                    }
-                    .onChange(of: selectedIndex) {
-                        proxy.scrollTo(selectedIndex)
-                    }
-                }
+                ResultsTableView(
+                    results: searchResults,
+                    selectedIndex: selectedIndex,
+                    onSelect: { select($0) },
+                    onSelectionChanged: { selectedIndex = $0 }
+                )
                 .frame(maxHeight: 300)
             }
             .background(.regularMaterial)
@@ -151,31 +239,6 @@ struct QuickOpenPanel: View {
                 }
             }
         }
-    }
-
-    private func highlightedText(name: String, highlights: [Range<String.Index>]) -> Text {
-        guard !highlights.isEmpty else {
-            return Text(name)
-        }
-
-        var attributed = AttributedString()
-        var current = name.startIndex
-
-        for range in highlights {
-            if current < range.lowerBound {
-                attributed.append(AttributedString(String(name[current..<range.lowerBound])))
-            }
-            var bold = AttributedString(String(name[range]))
-            bold.inlinePresentationIntent = .stronglyEmphasized
-            attributed.append(bold)
-            current = range.upperBound
-        }
-
-        if current < name.endIndex {
-            attributed.append(AttributedString(String(name[current..<name.endIndex])))
-        }
-
-        return Text(attributed)
     }
 
     private func select(_ url: URL) {
