@@ -1,4 +1,51 @@
+import AppKit
 import SwiftUI
+
+private struct AutoFocusTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.placeholderString = placeholder
+        field.isBordered = false
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
+        field.focusRingType = .none
+        field.delegate = context.coordinator
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+        }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: AutoFocusTextField
+        init(_ parent: AutoFocusTextField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+    }
+}
 
 private struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -64,9 +111,7 @@ struct ContentView: View {
     @State private var showQuickOpen: Bool = false
     @State private var searchQuery: String = ""
     @State private var editingTitle: String?
-    @FocusState private var isSearchFocused: Bool
     @FocusState private var isTitleFocused: Bool
-    @AccessibilityFocusState private var isSearchA11yFocused: Bool
     @State private var showLinks: Bool = false
     @State private var history = NavigationHistory()
 
@@ -105,14 +150,6 @@ struct ContentView: View {
         .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
         .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
         .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
-        .onChange(of: showQuickOpen) { _, newValue in
-            if newValue {
-                isSearchFocused = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    isSearchA11yFocused = true
-                }
-            }
-        }
     }
 
     private var selectVaultView: some View {
@@ -244,18 +281,16 @@ struct ContentView: View {
     private var quickOpenOverlay: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                TextField("Search files...", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(.title3)
-                    .padding(12)
-                    .focused($isSearchFocused)
-                    .accessibilityFocused($isSearchA11yFocused)
-                    .accessibilityLabel("Search files")
-                    .onSubmit {
+                AutoFocusTextField(
+                    text: $searchQuery,
+                    placeholder: "Search files...",
+                    onSubmit: {
                         if let first = filteredFiles.first {
                             openFile(first.url)
                         }
                     }
+                )
+                    .padding(12)
 
                 Divider()
 
