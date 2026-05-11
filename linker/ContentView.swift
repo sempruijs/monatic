@@ -64,7 +64,11 @@ struct ContentView: View {
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
             appState.restoreVaultIfNeeded()
+            if appState.vaultURL != nil && openFileURL == nil {
+                showQuickOpen = true
+            }
         }
+        .navigationTitle(currentNoteName ?? "linker")
         .background(WindowConfigurator())
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
