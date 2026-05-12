@@ -232,8 +232,16 @@ struct MarkdownTextView: NSViewRepresentable {
     var fontSize: CGFloat = 14
     var wordWrap: Bool = true
     @Binding var showFindBar: Bool
+    var noteName: String
+    @Binding var editingTitle: String?
+    var onTitleSubmit: () -> Void
+    @Binding var focusTitle: Bool
     var onOpenLink: (String) -> Void
     var onTextChange: ((String) -> Void)?
+
+    private func titleAreaHeight(for size: CGFloat) -> CGFloat {
+        ceil(size * 2.0 * 1.4) + 24
+    }
 
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
@@ -281,6 +289,25 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.allFileNames = fileNames
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
 
+        let titleHeight = titleAreaHeight(for: fontSize)
+        textView.textContainerInset = NSSize(width: 0, height: titleHeight)
+
+        let titleFontSize = fontSize * 2.0
+        let titleFont = NSFont.monospacedSystemFont(ofSize: titleFontSize, weight: .bold)
+        let titleField = NSTextField()
+        titleField.isBordered = false
+        titleField.drawsBackground = false
+        titleField.font = titleFont
+        titleField.focusRingType = .none
+        titleField.stringValue = noteName
+        titleField.placeholderString = "Note title"
+        titleField.delegate = context.coordinator
+        titleField.frame = NSRect(x: 5, y: 10, width: 500, height: ceil(titleFontSize * 1.4))
+        textView.addSubview(titleField)
+        context.coordinator.titleField = titleField
+        context.coordinator.editingTitle = $editingTitle
+        context.coordinator.onTitleSubmit = onTitleSubmit
+
         scrollView.documentView = textView
 
         context.coordinator.applyLinkStyling(to: textView)
@@ -293,6 +320,8 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.allFileNames = fileNames
         context.coordinator.onOpenLink = onOpenLink
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.editingTitle = $editingTitle
+        context.coordinator.onTitleSubmit = onTitleSubmit
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
 
         if showFindBar {
@@ -304,11 +333,42 @@ struct MarkdownTextView: NSViewRepresentable {
             }
         }
 
+        if let titleField = context.coordinator.titleField {
+            let displayTitle = editingTitle ?? noteName
+            if titleField.stringValue != displayTitle {
+                titleField.stringValue = displayTitle
+            }
+            let titleFontSize = fontSize * 2.0
+            let expectedFont = NSFont.monospacedSystemFont(ofSize: titleFontSize, weight: .bold)
+            if titleField.font != expectedFont {
+                titleField.font = expectedFont
+                titleField.frame.size.height = ceil(titleFontSize * 1.4)
+            }
+            let targetWidth = scrollView.contentSize.width - 10
+            if targetWidth > 0 && titleField.frame.width != targetWidth {
+                titleField.frame.size.width = targetWidth
+            }
+        }
+
+        if focusTitle {
+            DispatchQueue.main.async {
+                if let titleField = context.coordinator.titleField {
+                    titleField.window?.makeFirstResponder(titleField)
+                }
+                self.focusTitle = false
+            }
+        }
+
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
 
         let wrapChanged = context.coordinator.wordWrap != wordWrap
         context.coordinator.wordWrap = wordWrap
+
+        if fontChanged {
+            let titleHeight = titleAreaHeight(for: fontSize)
+            textView.textContainerInset = NSSize(width: 0, height: titleHeight)
+        }
 
         if wrapChanged {
             scrollView.hasHorizontalScroller = !wordWrap
@@ -335,7 +395,7 @@ struct MarkdownTextView: NSViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate, NSTextFieldDelegate {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
         var onTextChange: ((String) -> Void)?
@@ -343,11 +403,33 @@ struct MarkdownTextView: NSViewRepresentable {
         var wordWrap: Bool = true
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
+        weak var titleField: NSTextField?
+        var editingTitle: Binding<String?>?
+        var onTitleSubmit: (() -> Void)?
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text
             self.onOpenLink = onOpenLink
             self.onTextChange = onTextChange
+        }
+
+        // MARK: - Title field delegate
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField, field === titleField else { return }
+            editingTitle?.wrappedValue = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard control === titleField else { return false }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                onTitleSubmit?()
+                if let tv = (control.superview as? LinkCompletionTextView) {
+                    control.window?.makeFirstResponder(tv)
+                }
+                return true
+            }
+            return false
         }
 
         // MARK: - NSLayoutManagerDelegate

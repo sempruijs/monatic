@@ -63,7 +63,7 @@ struct ContentView: View {
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
     @State private var editingTitle: String?
-    @FocusState private var isTitleFocused: Bool
+    @State private var focusTitleField: Bool = false
     @State private var showLinks: Bool = false
     @State private var showFindBar: Bool = false
     @State private var history = NavigationHistory()
@@ -118,29 +118,29 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if let url = openFileURL {
+            if openFileURL != nil {
                 HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        noteTitleField(for: url)
-                        Divider()
-                        MarkdownTextView(
-                            text: $fileContent,
-                            fileNames: appState.graph.sortedNames,
-                            fontSize: appState.fontSize,
-                            wordWrap: appState.wordWrap,
-                            showFindBar: $showFindBar,
-                            onOpenLink: { openLinkedFile($0) },
-                            onTextChange: { newContent in
-                                fileContent = newContent
-                                if let url = openFileURL {
-                                    try? newContent.write(to: url, atomically: true, encoding: .utf8)
-                                }
-                                if let name = currentNoteName {
-                                    appState.graph.updateLinks(for: name, content: newContent)
-                                }
+                    MarkdownTextView(
+                        text: $fileContent,
+                        fileNames: appState.graph.sortedNames,
+                        fontSize: appState.fontSize,
+                        wordWrap: appState.wordWrap,
+                        showFindBar: $showFindBar,
+                        noteName: currentNoteName ?? "",
+                        editingTitle: $editingTitle,
+                        onTitleSubmit: { renameCurrentFile() },
+                        focusTitle: $focusTitleField,
+                        onOpenLink: { openLinkedFile($0) },
+                        onTextChange: { newContent in
+                            fileContent = newContent
+                            if let url = openFileURL {
+                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
                             }
-                        )
-                    }
+                            if let name = currentNoteName {
+                                appState.graph.updateLinks(for: name, content: newContent)
+                            }
+                        }
+                    )
 
                     if showLinks {
                         Divider()
@@ -216,28 +216,13 @@ struct ContentView: View {
         }
     }
 
-    private func noteTitleField(for url: URL) -> some View {
-        let name = url.deletingPathExtension().lastPathComponent
-        return TextField("Note title", text: Binding(
-            get: { editingTitle ?? name },
-            set: { editingTitle = $0 }
-        ))
-        .textFieldStyle(.plain)
-        .font(.system(size: appState.fontSize * 1.5, weight: .bold))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .focused($isTitleFocused)
-        .onAppear { editingTitle = nil }
-        .onSubmit { renameCurrentFile() }
-        .onChange(of: openFileURL) { editingTitle = nil }
-    }
-
     // MARK: - Actions
 
     private func openFile(_ url: URL) {
         do {
             fileContent = try String(contentsOf: url, encoding: .utf8)
             openFileURL = url
+            editingTitle = nil
             history.visit(url)
         } catch {}
         showQuickOpen = false
@@ -290,7 +275,7 @@ struct ContentView: View {
         fileContent = ""
         openFileURL = url
         editingTitle = actualName
-        isTitleFocused = true
+        focusTitleField = true
     }
 
     private func renameCurrentFile() {
