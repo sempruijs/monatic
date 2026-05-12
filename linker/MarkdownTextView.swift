@@ -432,6 +432,34 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
+            // Headings # through #####
+            let headingScales: [CGFloat] = [2.0, 1.7, 1.4, 1.2, 1.1]
+            if let regex = try? NSRegularExpression(pattern: "^(#{1,5})\\s+(.+)$", options: .anchorsMatchLines) {
+                for match in regex.matches(in: string, range: fullRange) {
+                    let matchRange = match.range(at: 0)
+                    let hashRange = match.range(at: 1)
+                    let textRange = match.range(at: 2)
+                    let level = hashRange.length
+                    let scale = headingScales[min(level, headingScales.count) - 1]
+                    let headingSize = fontSize * scale
+                    textStorage.addAttribute(
+                        .font,
+                        value: NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold),
+                        range: textRange
+                    )
+                    textStorage.addAttribute(
+                        .font,
+                        value: NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold),
+                        range: hashRange
+                    )
+                    if !cursorInside(cursor, matchRange) {
+                        let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
+                        newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
+                        newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
+                    }
+                }
+            }
+
             // Wiki links [[...]]
             if let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]") {
                 for match in regex.matches(in: string, range: fullRange) {
