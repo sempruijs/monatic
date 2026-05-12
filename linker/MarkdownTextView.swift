@@ -253,6 +253,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        layoutManager.delegate = context.coordinator
         textStorage.addLayoutManager(layoutManager)
         let containerWidth = wordWrap ? contentSize.width : CGFloat.greatestFiniteMagnitude
         let textContainer = NSTextContainer(size: NSSize(width: containerWidth, height: CGFloat.greatestFiniteMagnitude))
@@ -334,13 +335,14 @@ struct MarkdownTextView: NSViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject, NSTextViewDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
         var onTextChange: ((String) -> Void)?
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
         private var isUpdating = false
+        private var hiddenIndices = IndexSet()
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text
@@ -348,12 +350,49 @@ struct MarkdownTextView: NSViewRepresentable {
             self.onTextChange = onTextChange
         }
 
+        // MARK: - NSLayoutManagerDelegate
+
+        func layoutManager(
+            _ layoutManager: NSLayoutManager,
+            shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+            properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+            characterIndexes charIndexes: UnsafePointer<Int>,
+            font aFont: NSFont,
+            forGlyphRange glyphRange: NSRange
+        ) -> Int {
+            var needsChange = false
+            for i in 0..<glyphRange.length {
+                if hiddenIndices.contains(charIndexes[i]) {
+                    needsChange = true
+                    break
+                }
+            }
+            guard needsChange else { return 0 }
+
+            let modified = UnsafeMutablePointer<NSLayoutManager.GlyphProperty>.allocate(capacity: glyphRange.length)
+            defer { modified.deallocate() }
+            for i in 0..<glyphRange.length {
+                modified[i] = hiddenIndices.contains(charIndexes[i]) ? .null : props[i]
+            }
+            layoutManager.setGlyphs(glyphs, properties: modified, characterIndexes: charIndexes, font: aFont, forGlyphRange: glyphRange)
+            return glyphRange.length
+        }
+
+        // MARK: - NSTextViewDelegate
+
         func textDidChange(_ notification: Notification) {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
             isUpdating = true
             let content = textView.string
             text.wrappedValue = content
             onTextChange?(content)
+            applyLinkStyling(to: textView)
+            isUpdating = false
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !isUpdating, let textView = notification.object as? NSTextView else { return }
+            isUpdating = true
             applyLinkStyling(to: textView)
             isUpdating = false
         }
@@ -370,10 +409,19 @@ struct MarkdownTextView: NSViewRepresentable {
             return true
         }
 
+        // MARK: - Styling
+
+        private func cursorInside(_ cursor: Int, _ range: NSRange) -> Bool {
+            cursor >= range.location && cursor <= NSMaxRange(range)
+        }
+
         func applyLinkStyling(to textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
             let string = textStorage.string
             let fullRange = NSRange(location: 0, length: textStorage.length)
+            let cursor = textView.selectedRange().location
+
+            var newHidden = IndexSet()
 
             textStorage.beginEditing()
             textStorage.removeAttribute(.link, range: fullRange)
@@ -384,46 +432,62 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
-            let wikiPattern = "\\[\\[([^\\]]+)\\]\\]"
-            if let regex = try? NSRegularExpression(pattern: wikiPattern) {
+            // Wiki links [[...]]
+            if let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]") {
                 for match in regex.matches(in: string, range: fullRange) {
                     let matchRange = match.range(at: 0)
                     let innerRange = match.range(at: 1)
                     let innerText = (string as NSString).substring(with: innerRange)
                     let encoded = innerText.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? innerText
                     if let url = URL(string: "linker://\(encoded)") {
-                        textStorage.addAttribute(.link, value: url, range: matchRange)
+                        textStorage.addAttribute(.link, value: url, range: innerRange)
+                    }
+                    if !cursorInside(cursor, matchRange) {
+                        newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
+                        newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
                     }
                 }
             }
 
-            let mdPattern = "(?<!\\[)\\[([^\\[\\]]+)\\]\\(([^)]+)\\)"
-            if let regex = try? NSRegularExpression(pattern: mdPattern) {
+            // Markdown links [text](url)
+            if let regex = try? NSRegularExpression(pattern: "(?<!\\[)\\[([^\\[\\]]+)\\]\\(([^)]+)\\)") {
                 for match in regex.matches(in: string, range: fullRange) {
                     let matchRange = match.range(at: 0)
+                    let textRange = match.range(at: 1)
                     let urlRange = match.range(at: 2)
                     let urlString = (string as NSString).substring(with: urlRange)
                     if let url = URL(string: urlString) {
-                        textStorage.addAttribute(.link, value: url, range: matchRange)
+                        textStorage.addAttribute(.link, value: url, range: textRange)
+                    }
+                    if !cursorInside(cursor, matchRange) {
+                        newHidden.insert(matchRange.location)
+                        let tailStart = NSMaxRange(textRange)
+                        newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
                     }
                 }
             }
 
-            let boldPattern = "\\*\\*(.+?)\\*\\*"
-            if let regex = try? NSRegularExpression(pattern: boldPattern) {
+            // Bold **...**
+            if let regex = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*") {
                 for match in regex.matches(in: string, range: fullRange) {
+                    let matchRange = match.range(at: 0)
                     let innerRange = match.range(at: 1)
                     textStorage.addAttribute(
                         .font,
                         value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
                         range: innerRange
                     )
+                    if !cursorInside(cursor, matchRange) {
+                        newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
+                        newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
+                    }
                 }
             }
 
-            let italicPattern = "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)"
-            if let regex = try? NSRegularExpression(pattern: italicPattern) {
+            // Italic *...* or _..._
+            if let regex = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)") {
                 for match in regex.matches(in: string, range: fullRange) {
+                    let matchRange = match.range(at: 0)
                     let group1 = match.range(at: 1)
                     let group2 = match.range(at: 2)
                     let innerRange = group1.location != NSNotFound ? group1 : group2
@@ -441,9 +505,20 @@ struct MarkdownTextView: NSViewRepresentable {
                         italicFont = NSFont(descriptor: desc, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
                     }
                     textStorage.addAttribute(.font, value: italicFont, range: innerRange)
+                    if !cursorInside(cursor, matchRange) {
+                        newHidden.insert(matchRange.location)
+                        newHidden.insert(NSMaxRange(matchRange) - 1)
+                    }
                 }
             }
+
+            hiddenIndices = newHidden
             textStorage.endEditing()
+
+            if let lm = textView.layoutManager {
+                lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+                lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+            }
         }
     }
 }
