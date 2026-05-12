@@ -65,6 +65,7 @@ struct ContentView: View {
     @State private var editingTitle: String?
     @FocusState private var isTitleFocused: Bool
     @State private var showLinks: Bool = false
+    @State private var showFindBar: Bool = false
     @State private var history = NavigationHistory()
 
     private var currentNoteName: String? {
@@ -98,6 +99,7 @@ struct ContentView: View {
         .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
         .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
         .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
+        .focusedSceneValue(\.findAction) { showFindBar = true }
         .focusedSceneValue(\.increaseFontAction) { appState.increaseFontSize() }
         .focusedSceneValue(\.decreaseFontAction) { appState.decreaseFontSize() }
     }
@@ -126,6 +128,7 @@ struct ContentView: View {
                             fileNames: appState.graph.sortedNames,
                             fontSize: appState.fontSize,
                             wordWrap: appState.wordWrap,
+                            showFindBar: $showFindBar,
                             onOpenLink: { openLinkedFile($0) },
                             onTextChange: { newContent in
                                 fileContent = newContent

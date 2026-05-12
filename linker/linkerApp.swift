@@ -24,6 +24,10 @@ private struct GoForwardActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct FindActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct IncreaseFontActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -63,6 +67,11 @@ extension FocusedValues {
         set { self[GoForwardActionKey.self] = newValue }
     }
 
+    var findAction: (() -> Void)? {
+        get { self[FindActionKey.self] }
+        set { self[FindActionKey.self] = newValue }
+    }
+
     var increaseFontAction: (() -> Void)? {
         get { self[IncreaseFontActionKey.self] }
         set { self[IncreaseFontActionKey.self] = newValue }
@@ -83,6 +92,7 @@ struct linkerApp: App {
     @FocusedValue(\.newTabAction) var newTabAction
     @FocusedValue(\.goBackAction) var goBackAction
     @FocusedValue(\.goForwardAction) var goForwardAction
+    @FocusedValue(\.findAction) var findAction
     @FocusedValue(\.increaseFontAction) var increaseFontAction
     @FocusedValue(\.decreaseFontAction) var decreaseFontAction
 
@@ -145,6 +155,13 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("-", modifiers: .command)
                 .disabled(decreaseFontAction == nil)
+            }
+            CommandGroup(replacing: .textEditing) {
+                Button("Find…") {
+                    findAction?()
+                }
+                .keyboardShortcut("f")
+                .disabled(findAction == nil)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {

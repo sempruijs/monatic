@@ -231,6 +231,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var fileNames: [String]
     var fontSize: CGFloat = 14
     var wordWrap: Bool = true
+    @Binding var showFindBar: Bool
     var onOpenLink: (String) -> Void
     var onTextChange: ((String) -> Void)?
 
@@ -270,6 +271,8 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.allowsUndo = true
         textView.isEditable = true
         textView.isSelectable = true
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -290,6 +293,15 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onOpenLink = onOpenLink
         context.coordinator.onTextChange = onTextChange
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
+
+        if showFindBar {
+            DispatchQueue.main.async {
+                let menuItem = NSMenuItem()
+                menuItem.tag = Int(NSTextFinder.Action.showFindInterface.rawValue)
+                textView.performFindPanelAction(menuItem)
+                self.showFindBar = false
+            }
+        }
 
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
