@@ -359,13 +359,15 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            if let url = link as? URL, url.scheme == "linker" {
+            guard let url = link as? URL else { return false }
+            if url.scheme == "linker" {
                 let filename = url.host() ?? ""
                 let decoded = filename.removingPercentEncoding ?? filename
                 onOpenLink(decoded)
                 return true
             }
-            return false
+            NSWorkspace.shared.open(url)
+            return true
         }
 
         func applyLinkStyling(to textView: NSTextView) {
@@ -382,14 +384,26 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
-            let pattern = "\\[\\[([^\\]]+)\\]\\]"
-            if let regex = try? NSRegularExpression(pattern: pattern) {
+            let wikiPattern = "\\[\\[([^\\]]+)\\]\\]"
+            if let regex = try? NSRegularExpression(pattern: wikiPattern) {
                 for match in regex.matches(in: string, range: fullRange) {
                     let matchRange = match.range(at: 0)
                     let innerRange = match.range(at: 1)
                     let innerText = (string as NSString).substring(with: innerRange)
                     let encoded = innerText.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? innerText
                     if let url = URL(string: "linker://\(encoded)") {
+                        textStorage.addAttribute(.link, value: url, range: matchRange)
+                    }
+                }
+            }
+
+            let mdPattern = "(?<!\\[)\\[([^\\[\\]]+)\\]\\(([^)]+)\\)"
+            if let regex = try? NSRegularExpression(pattern: mdPattern) {
+                for match in regex.matches(in: string, range: fullRange) {
+                    let matchRange = match.range(at: 0)
+                    let urlRange = match.range(at: 2)
+                    let urlString = (string as NSString).substring(with: urlRange)
+                    if let url = URL(string: urlString) {
                         textStorage.addAttribute(.link, value: url, range: matchRange)
                     }
                 }
