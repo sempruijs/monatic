@@ -231,7 +231,7 @@ struct QuickOpenPanel: View {
             searchTask = Task.detached(priority: .userInitiated) {
                 try? await Task.sleep(for: .milliseconds(30))
                 guard !Task.isCancelled else { return }
-                let results = index.search(query)
+                let results = index.search(query, cancelled: { Task.isCancelled })
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.searchResults = results

@@ -20,7 +20,7 @@ final class SearchIndex: @unchecked Sendable {
         bytes = names.map { Array($0.lowercased().utf8) }
     }
 
-    nonisolated func search(_ query: String, limit: Int = 20) -> [Result] {
+    nonisolated func search(_ query: String, limit: Int = 20, cancelled: () -> Bool = { false }) -> [Result] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
             let n = min(limit, count)
@@ -34,9 +34,12 @@ final class SearchIndex: @unchecked Sendable {
         }
 
         var scored: [(Int, Int)] = []
+        scored.reserveCapacity(min(bytes.count, 1000))
 
+        let fileCount = bytes.count
         queryBytes.withUnsafeBufferPointer { qBuf in
-            for i in 0..<bytes.count {
+            for i in 0..<fileCount {
+                if i & 0xFF == 0 && cancelled() { return }
                 bytes[i].withUnsafeBufferPointer { sBuf in
                     if let score = Self.fuzzyScore(pattern: qBuf, str: sBuf) {
                         scored.append((i, score))
@@ -44,6 +47,8 @@ final class SearchIndex: @unchecked Sendable {
                 }
             }
         }
+
+        if cancelled() { return [] }
 
         scored.sort { $0.1 > $1.1 }
         let top = scored.prefix(limit)
@@ -74,49 +79,32 @@ final class SearchIndex: @unchecked Sendable {
             si += 1
         }
 
-        // Try to find a contiguous substring match first
-        var positions = [Int](repeating: 0, count: pLen)
-        var foundContiguous = false
+        // Try contiguous substring match first
+        var contiguousStart = -1
         for start in 0...(sLen - pLen) {
             var match = true
             for j in 0..<pLen {
                 if s[start + j] != p[j] { match = false; break }
             }
-            if match {
-                for j in 0..<pLen { positions[j] = start + j }
-                foundContiguous = true
-                break
-            }
-        }
-
-        if !foundContiguous {
-            si = 0
-            for pi in 0..<pLen {
-                let target = p[pi]
-                while s[si] != target { si += 1 }
-                positions[pi] = si
-                si += 1
-            }
+            if match { contiguousStart = start; break }
         }
 
         // Score the match
         var score = 100
-        let span = pLen > 1 ? (positions[pLen - 1] - positions[0] + 1) : 1
-        let isContiguous = span == pLen
 
-        if isContiguous {
+        if contiguousStart >= 0 {
             score += 100
-            let start = positions[0]
-            if start == 0 {
+            if contiguousStart == 0 {
                 score += 60
             } else {
-                let prev = s[start - 1]
+                let prev = s[contiguousStart - 1]
                 if prev == 0x20 || prev == 0x5F || prev == 0x2D || prev == 0x2E {
                     score += 50
                 }
             }
-            if positions[pLen - 1] + 1 == sLen || (positions[pLen - 1] + 1 < sLen && {
-                let next = s[positions[pLen - 1] + 1]
+            let endPos = contiguousStart + pLen
+            if endPos == sLen || (endPos < sLen && {
+                let next = s[endPos]
                 return next == 0x20 || next == 0x5F || next == 0x2D || next == 0x2E
             }()) {
                 score += 20
@@ -124,10 +112,22 @@ final class SearchIndex: @unchecked Sendable {
             if pLen == sLen {
                 score += 80
             }
+            score -= min(contiguousStart * 3, 15)
         } else {
-            for i in 0..<pLen {
-                let pos = positions[i]
-                if i > 0 && pos == positions[i - 1] + 1 {
+            // Greedy forward match — no heap allocation, use inline scoring
+            si = 0
+            var prevPos = -1
+            var firstPos = 0
+            var lastPos = 0
+            for pi in 0..<pLen {
+                let target = p[pi]
+                while s[si] != target { si += 1 }
+                let pos = si
+
+                if pi == 0 { firstPos = pos }
+                lastPos = pos
+
+                if pi > 0 && pos == prevPos + 1 {
                     score += 15
                 }
                 if pos == 0 {
@@ -138,11 +138,16 @@ final class SearchIndex: @unchecked Sendable {
                         score += 25
                     }
                 }
+
+                prevPos = pos
+                si += 1
             }
+
+            let span = lastPos - firstPos + 1
             score -= (span - pLen) * 2
+            score -= min(firstPos * 3, 15)
         }
 
-        score -= min(positions[0] * 3, 15)
         score -= sLen
 
         return score
