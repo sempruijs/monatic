@@ -408,6 +408,41 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
                 }
             }
+
+            let boldPattern = "\\*\\*(.+?)\\*\\*"
+            if let regex = try? NSRegularExpression(pattern: boldPattern) {
+                for match in regex.matches(in: string, range: fullRange) {
+                    let innerRange = match.range(at: 1)
+                    textStorage.addAttribute(
+                        .font,
+                        value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
+                        range: innerRange
+                    )
+                }
+            }
+
+            let italicPattern = "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)"
+            if let regex = try? NSRegularExpression(pattern: italicPattern) {
+                for match in regex.matches(in: string, range: fullRange) {
+                    let group1 = match.range(at: 1)
+                    let group2 = match.range(at: 2)
+                    let innerRange = group1.location != NSNotFound ? group1 : group2
+                    guard innerRange.location != NSNotFound else { continue }
+                    let currentFont = textStorage.attribute(.font, at: innerRange.location, effectiveRange: nil) as? NSFont
+                    let isBold = currentFont?.fontDescriptor.symbolicTraits.contains(.bold) == true
+                    let italicFont: NSFont
+                    if isBold {
+                        let desc = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
+                            .fontDescriptor.withSymbolicTraits(.italic)
+                        italicFont = NSFont(descriptor: desc, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
+                    } else {
+                        let desc = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                            .fontDescriptor.withSymbolicTraits(.italic)
+                        italicFont = NSFont(descriptor: desc, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                    }
+                    textStorage.addAttribute(.font, value: italicFont, range: innerRange)
+                }
+            }
             textStorage.endEditing()
         }
     }
