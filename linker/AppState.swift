@@ -56,6 +56,83 @@ class AppState {
         UserDefaults.standard.removeObject(forKey: "vaultBookmark")
     }
 
+    func clearVault() {
+        vaultURL?.stopAccessingSecurityScopedResource()
+        vaultURL = nil
+        graph = VaultGraph()
+        UserDefaults.standard.removeObject(forKey: "vaultBookmark")
+    }
+
+    func createNewVault() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.title = "Create New Vault"
+        panel.nameFieldLabel = "Vault Name:"
+        panel.nameFieldStringValue = "My Vault"
+        panel.prompt = "Create"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            return
+        }
+
+        let welcomeURL = url.appendingPathComponent("Welcome.md")
+        let welcomeContent = """
+        # Welcome to Monatic
+
+        Monatic is a markdown editor built around **[[wiki-style links]]**.
+
+        ## Formatting
+
+        You can use all common markdown formatting:
+
+        - **Bold** with `**double asterisks**`
+        - *Italic* with `*single asterisks*`
+        - Headings with `#` through `#####`
+
+        ## Links
+
+        Link to other notes by wrapping their name in double brackets: `[[Note Name]]`.
+        If the note doesn't exist yet, clicking the link will create it.
+
+        ## Keyboard Shortcuts
+
+        | Shortcut | Action |
+        |----------|--------|
+        | Cmd+N | New Note |
+        | Cmd+O | Quick Open |
+        | Cmd+T | New Tab |
+        | Cmd+F | Find |
+        | Cmd+S | Save |
+        | Cmd+Shift+L | Toggle Links Sidebar |
+        | Cmd+Shift+T | Insert Template |
+        | Cmd+Shift+Delete | Delete Current File |
+
+        ## Deleting Files
+
+        To delete a file, press **Cmd+Shift+Delete**. You will be asked to confirm before the file is moved to the Trash.
+
+        ## Learn More
+
+        Visit [monatic.pruijs.net](https://monatic.pruijs.net) for more information.
+        """
+
+        try? welcomeContent.write(to: welcomeURL, atomically: true, encoding: .utf8)
+
+        vaultURL = url
+        graph.build(from: url)
+
+        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
+            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
+        } else if let bookmark = try? url.bookmarkData() {
+            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
+        }
+    }
+
     func selectVault() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false

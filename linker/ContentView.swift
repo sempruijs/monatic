@@ -137,8 +137,13 @@ struct ContentView: View {
             Text("No vault selected")
                 .font(.title2)
                 .foregroundStyle(.secondary)
-            Button("Select Vault Folder") {
-                appState.selectVault()
+            HStack(spacing: 12) {
+                Button("Open Existing Vault") {
+                    appState.selectVault()
+                }
+                Button("Create New Vault") {
+                    appState.createNewVault()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

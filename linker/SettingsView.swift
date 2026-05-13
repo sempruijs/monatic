@@ -14,6 +14,11 @@ struct SettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
+                    if appState.vaultURL != nil {
+                        Button("Clear") {
+                            appState.clearVault()
+                        }
+                    }
                     Button("Change…") {
                         appState.selectVault()
                     }
