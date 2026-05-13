@@ -7,6 +7,19 @@ struct SettingsView: View {
         @Bindable var appState = appState
 
         Form {
+            Section("Vault") {
+                HStack {
+                    Text(appState.vaultURL?.path(percentEncoded: false) ?? "No vault selected")
+                        .foregroundStyle(appState.vaultURL != nil ? .primary : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("Change…") {
+                        appState.selectVault()
+                    }
+                }
+            }
+
             Section("Editor") {
                 HStack {
                     Text("Text Size")
