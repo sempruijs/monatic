@@ -123,7 +123,10 @@ struct ContentView: View {
             appState.restoreVaultIfNeeded()
             appState.restoreTemplatesFolderIfNeeded()
             if appState.vaultURL != nil && openFileURL == nil {
-                if let first = appState.graph.files.first {
+                if appState.newTabShouldQuickOpen {
+                    appState.newTabShouldQuickOpen = false
+                    showQuickOpen = true
+                } else if let first = appState.graph.files.first {
                     openFile(first.url)
                 }
             }
@@ -137,7 +140,10 @@ struct ContentView: View {
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
-        .focusedSceneValue(\.newTabAction) { openWindow(id: "editor") }
+        .focusedSceneValue(\.newTabAction) {
+            appState.newTabShouldQuickOpen = true
+            openWindow(id: "editor")
+        }
         .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
         .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
         .focusedSceneValue(\.findAction) { showFindBar = true }

@@ -8,6 +8,7 @@ class AppState {
     var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
     var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
     var templatesFolderURL: URL?
+    var newTabShouldQuickOpen = false
     private var hasRestored = false
     private var hasRestoredTemplates = false
 
