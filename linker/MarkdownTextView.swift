@@ -277,6 +277,10 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.isAutomaticLinkDetectionEnabled = false
+        textView.linkTextAttributes = [
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .cursor: NSCursor.pointingHand,
+        ]
         textView.allowsUndo = true
         textView.isEditable = true
         textView.isSelectable = true
@@ -543,6 +547,15 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             // Wiki links [[...]]
+            let existingNames: Set<String>
+            if let ltv = textView as? LinkCompletionTextView {
+                existingNames = Set(ltv.allFileNames)
+            } else {
+                existingNames = []
+            }
+            let existingLinkColor = NSColor.systemBlue
+            let missingLinkColor = NSColor.systemBlue.withAlphaComponent(0.4)
+
             if let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]") {
                 for match in regex.matches(in: string, range: fullRange) {
                     let matchRange = match.range(at: 0)
@@ -552,6 +565,8 @@ struct MarkdownTextView: NSViewRepresentable {
                     if let url = URL(string: "linker://\(encoded)") {
                         textStorage.addAttribute(.link, value: url, range: innerRange)
                     }
+                    let linkColor = existingNames.contains(innerText) ? existingLinkColor : missingLinkColor
+                    textStorage.addAttribute(.foregroundColor, value: linkColor, range: innerRange)
                     if !cursorInside(cursor, matchRange) {
                         newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
                         newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
