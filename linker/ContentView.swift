@@ -82,6 +82,8 @@ struct ContentView: View {
     @State private var showDeleteConfirmation: Bool = false
     @State private var cursorPosition: Int = 0
     @State private var cursorPositionToRestore: Int?
+    @State private var showRenameReferencesAlert: Bool = false
+    @State private var pendingRenameOldName: String?
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
@@ -97,6 +99,21 @@ struct ContentView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Are you sure you want to delete \"\(currentNoteName ?? "this file")\"? This cannot be undone.")
+            }
+            .alert("Update References", isPresented: $showRenameReferencesAlert) {
+                Button("Update") {
+                    if let oldName = pendingRenameOldName, let newName = currentNoteName {
+                        appState.graph.updateReferences(from: oldName, to: newName)
+                    }
+                    pendingRenameOldName = nil
+                    editingTitle = nil
+                }
+                Button("Skip", role: .cancel) {
+                    pendingRenameOldName = nil
+                    editingTitle = nil
+                }
+            } message: {
+                Text("Other files link to this note. Do you want to rename the references as well?")
             }
     }
 
@@ -391,13 +408,24 @@ struct ContentView: View {
             return
         }
 
+        let hasReferences = !appState.graph.incoming(to: oldName).isEmpty
+
         let newURL = oldURL.deletingLastPathComponent().appendingPathComponent("\(newTitle).md")
         do {
             try FileManager.default.moveItem(at: oldURL, to: newURL)
             openFileURL = newURL
             appState.graph.rename(from: oldName, to: newTitle, newURL: newURL)
+        } catch {
             editingTitle = nil
-        } catch {}
+            return
+        }
+
+        if hasReferences {
+            pendingRenameOldName = oldName
+            showRenameReferencesAlert = true
+        } else {
+            editingTitle = nil
+        }
     }
 }
 

@@ -78,6 +78,18 @@ class VaultGraph {
         inLinks[name] ?? []
     }
 
+    func updateReferences(from oldName: String, to newName: String) {
+        let referrers = inLinks[newName] ?? inLinks[oldName] ?? []
+        for referrer in referrers {
+            guard let entry = filesByName[referrer] else { continue }
+            guard var content = try? String(contentsOf: entry.url, encoding: .utf8) else { continue }
+            content = content.replacingOccurrences(of: "[[\(oldName)]]", with: "[[\(newName)]]")
+            try? content.write(to: entry.url, atomically: true, encoding: .utf8)
+            let newLinks = Self.parseLinks(from: content)
+            outLinks[referrer] = newLinks
+        }
+    }
+
     func addFile(name: String, url: URL) {
         let entry = FileEntry(name: name, url: url)
         filesByName[name] = entry
