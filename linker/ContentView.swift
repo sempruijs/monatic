@@ -116,6 +116,10 @@ struct ContentView: View {
         }
         .navigationTitle(currentNoteName ?? "linker")
         .background(WindowConfigurator())
+        .onOpenURL { url in
+            guard ["md", "markdown", "txt"].contains(url.pathExtension) else { return }
+            openFile(url)
+        }
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
