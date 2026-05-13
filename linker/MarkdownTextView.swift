@@ -233,11 +233,13 @@ struct MarkdownTextView: NSViewRepresentable {
     var wordWrap: Bool = true
     @Binding var showFindBar: Bool
     @Binding var textToInsert: String?
+    @Binding var cursorPositionToRestore: Int?
     var noteName: String
     @Binding var editingTitle: String?
     var onTitleSubmit: () -> Void
     @Binding var focusTitle: Bool
     var onOpenLink: (String) -> Void
+    var onCursorChange: ((Int) -> Void)?
     var onTextChange: ((String) -> Void)?
 
     private func titleAreaHeight(for size: CGFloat) -> CGFloat {
@@ -248,6 +250,7 @@ struct MarkdownTextView: NSViewRepresentable {
         let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
         coordinator.fontSize = fontSize
         coordinator.wordWrap = wordWrap
+        coordinator.onCursorChange = onCursorChange
         return coordinator
     }
 
@@ -336,12 +339,22 @@ struct MarkdownTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? LinkCompletionTextView else { return }
         textView.allFileNames = fileNames
         context.coordinator.onOpenLink = onOpenLink
+        context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onTextChange = onTextChange
         context.coordinator.editingTitle = $editingTitle
         context.coordinator.onTitleSubmit = onTitleSubmit
         context.coordinator.existingFileNames = Set(fileNames)
         context.coordinator.currentFileName = noteName
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
+
+        if let position = cursorPositionToRestore {
+            DispatchQueue.main.async {
+                let safePosition = min(position, textView.string.count)
+                textView.setSelectedRange(NSRange(location: safePosition, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: safePosition, length: 0))
+                self.cursorPositionToRestore = nil
+            }
+        }
 
         if showFindBar {
             DispatchQueue.main.async {
@@ -437,6 +450,7 @@ struct MarkdownTextView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate, NSTextFieldDelegate {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
+        var onCursorChange: ((Int) -> Void)?
         var onTextChange: ((String) -> Void)?
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
@@ -539,6 +553,7 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
             isUpdating = true
             applyLinkStyling(to: textView)
+            onCursorChange?(textView.selectedRange().location)
             isUpdating = false
         }
 
