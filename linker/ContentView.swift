@@ -235,6 +235,13 @@ struct ContentView: View {
                     }
                     ToolbarItem(placement: .primaryAction) {
                         Button {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
                             withAnimation { showLinks.toggle() }
                         } label: {
                             Label("Links", systemImage: "link")
