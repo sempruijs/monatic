@@ -98,6 +98,27 @@ class VaultGraph {
         searchIndex.rebuild(from: files)
     }
 
+    func removeFile(name: String) {
+        filesByName.removeValue(forKey: name)
+
+        if let links = outLinks.removeValue(forKey: name) {
+            for link in links {
+                inLinks[link]?.remove(name)
+            }
+        }
+
+        inLinks.removeValue(forKey: name)
+
+        for (source, _) in outLinks where outLinks[source]?.contains(name) == true {
+            outLinks[source]?.remove(name)
+        }
+
+        files = filesByName.values.sorted {
+            $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+        searchIndex.rebuild(from: files)
+    }
+
     func updateLinks(for name: String, content: String) {
         let oldLinks = outLinks[name] ?? []
         let newLinks = Self.parseLinks(from: content)

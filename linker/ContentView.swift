@@ -69,12 +69,26 @@ struct ContentView: View {
     @State private var showTemplatePicker: Bool = false
     @State private var textToInsert: String?
     @State private var history = NavigationHistory()
+    @State private var showDeleteConfirmation: Bool = false
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
     }
 
     var body: some View {
+        mainContent
+            .focusedSceneValue(\.closeOtherTabsAction) { closeOtherTabs() }
+            .focusedSceneValue(\.toggleLinksAction) { withAnimation { showLinks.toggle() } }
+            .focusedSceneValue(\.deleteFileAction, openFileURL != nil ? { showDeleteConfirmation = true } : nil)
+            .alert("Delete File", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) { deleteCurrentFile() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to delete \"\(currentNoteName ?? "this file")\"? This cannot be undone.")
+            }
+    }
+
+    private var mainContent: some View {
         ZStack {
             if appState.vaultURL != nil {
                 editorView
@@ -295,6 +309,24 @@ struct ContentView: View {
         openFileURL = url
         editingTitle = actualName
         focusTitleField = true
+    }
+
+    private func closeOtherTabs() {
+        guard let currentWindow = NSApp.keyWindow else { return }
+        for window in NSApp.windows where window !== currentWindow && window.tabbingIdentifier == currentWindow.tabbingIdentifier && window.isVisible {
+            window.performClose(nil)
+        }
+    }
+
+    private func deleteCurrentFile() {
+        guard let url = openFileURL else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            appState.graph.removeFile(name: name)
+            openFileURL = nil
+            fileContent = ""
+        } catch {}
     }
 
     private func renameCurrentFile() {

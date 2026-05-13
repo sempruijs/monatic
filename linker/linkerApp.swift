@@ -40,6 +40,18 @@ private struct ShowTemplatePickerKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct CloseOtherTabsActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct ToggleLinksActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct DeleteFileActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -90,6 +102,21 @@ extension FocusedValues {
         get { self[ShowTemplatePickerKey.self] }
         set { self[ShowTemplatePickerKey.self] = newValue }
     }
+
+    var closeOtherTabsAction: (() -> Void)? {
+        get { self[CloseOtherTabsActionKey.self] }
+        set { self[CloseOtherTabsActionKey.self] = newValue }
+    }
+
+    var toggleLinksAction: (() -> Void)? {
+        get { self[ToggleLinksActionKey.self] }
+        set { self[ToggleLinksActionKey.self] = newValue }
+    }
+
+    var deleteFileAction: (() -> Void)? {
+        get { self[DeleteFileActionKey.self] }
+        set { self[DeleteFileActionKey.self] = newValue }
+    }
 }
 
 @main
@@ -105,6 +132,9 @@ struct linkerApp: App {
     @FocusedValue(\.increaseFontAction) var increaseFontAction
     @FocusedValue(\.decreaseFontAction) var decreaseFontAction
     @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
+    @FocusedValue(\.closeOtherTabsAction) var closeOtherTabsAction
+    @FocusedValue(\.toggleLinksAction) var toggleLinksAction
+    @FocusedValue(\.deleteFileAction) var deleteFileAction
 
     var body: some Scene {
         WindowGroup(id: "editor") {
@@ -139,6 +169,20 @@ struct linkerApp: App {
                     NSApp.keyWindow?.performClose(nil)
                 }
                 .keyboardShortcut("w")
+
+                Button("Close Other Tabs") {
+                    closeOtherTabsAction?()
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
+                .disabled(closeOtherTabsAction == nil)
+
+                Divider()
+
+                Button("Delete File…") {
+                    deleteFileAction?()
+                }
+                .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                .disabled(deleteFileAction == nil)
             }
             CommandGroup(before: .toolbar) {
                 Button("Back") {
@@ -152,6 +196,14 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(goForwardAction == nil)
+
+                Divider()
+
+                Button("Toggle Links") {
+                    toggleLinksAction?()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(toggleLinksAction == nil)
             }
             CommandGroup(after: .toolbar) {
                 Button("Increase Size") {
