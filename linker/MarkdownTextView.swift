@@ -480,6 +480,14 @@ struct MarkdownTextView: NSViewRepresentable {
             validationLabel?.isHidden = error == nil
         }
 
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField, field === titleField else { return }
+            if validateFileName(field.stringValue) == nil {
+                validationLabel?.isHidden = true
+                onTitleSubmit?()
+            }
+        }
+
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard control === titleField else { return false }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
