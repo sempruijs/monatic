@@ -9,6 +9,7 @@ class VaultGraph {
 
     private(set) var files: [FileEntry] = []
     private var filesByName: [String: FileEntry] = [:]
+    private(set) var assetNames: Set<String> = []
     private var outLinks: [String: Set<String>] = [:]
     private var inLinks: [String: Set<String>] = [:]
     let searchIndex = SearchIndex()
@@ -16,11 +17,17 @@ class VaultGraph {
     typealias SearchResult = SearchIndex.Result
 
     static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+    private static let textExtensions: Set<String> = ["md", "markdown", "txt"]
 
-    var sortedNames: [String] { files.map(\.name) }
+    var sortedNames: [String] {
+        (files.map(\.name) + assetNames.sorted()).sorted {
+            $0.localizedCompare($1) == .orderedAscending
+        }
+    }
 
     func build(from vaultURL: URL) {
         filesByName.removeAll()
+        assetNames.removeAll()
         outLinks.removeAll()
         inLinks.removeAll()
 
@@ -32,16 +39,20 @@ class VaultGraph {
         ) else { return }
 
         for case let url as URL in enumerator {
-            guard url.pathExtension == "md" else { continue }
-            let name = url.deletingPathExtension().lastPathComponent
-            filesByName[name] = FileEntry(name: name, url: url)
+            let ext = url.pathExtension.lowercased()
+            if ext == "md" {
+                let name = url.deletingPathExtension().lastPathComponent
+                filesByName[name] = FileEntry(name: name, url: url)
 
-            if let content = try? String(contentsOf: url, encoding: .utf8) {
-                let links = Self.parseLinks(from: content)
-                outLinks[name] = links
-                for link in links {
-                    inLinks[link, default: []].insert(name)
+                if let content = try? String(contentsOf: url, encoding: .utf8) {
+                    let links = Self.parseLinks(from: content)
+                    outLinks[name] = links
+                    for link in links {
+                        inLinks[link, default: []].insert(name)
+                    }
                 }
+            } else if !Self.textExtensions.contains(ext) && !ext.isEmpty {
+                assetNames.insert(url.lastPathComponent)
             }
         }
 
