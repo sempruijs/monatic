@@ -111,7 +111,9 @@ struct ContentView: View {
             appState.restoreVaultIfNeeded()
             appState.restoreTemplatesFolderIfNeeded()
             if appState.vaultURL != nil && openFileURL == nil {
-                showQuickOpen = true
+                if let first = appState.graph.files.first {
+                    openFile(first.url)
+                }
             }
         }
         .navigationTitle(currentNoteName ?? "linker")

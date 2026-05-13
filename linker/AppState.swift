@@ -101,16 +101,14 @@ class AppState {
 
         ## Keyboard Shortcuts
 
-        | Shortcut | Action |
-        |----------|--------|
-        | Cmd+N | New Note |
-        | Cmd+O | Quick Open |
-        | Cmd+T | New Tab |
-        | Cmd+F | Find |
-        | Cmd+S | Save |
-        | Cmd+Shift+L | Toggle Links Sidebar |
-        | Cmd+Shift+T | Insert Template |
-        | Cmd+Shift+Delete | Delete Current File |
+        - Cmd+N - New Note
+        - Cmd+O - Quick Open
+        - Cmd+T - New Tab
+        - Cmd+F - Find
+        - Cmd+S - Save
+        - Cmd+Shift+L - Toggle Links Sidebar
+        - Cmd+Shift+T - Insert Template
+        - Cmd+Shift+Delete - Delete Current File
 
         ## Deleting Files
 
