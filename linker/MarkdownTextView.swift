@@ -583,6 +583,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     let urlString = (string as NSString).substring(with: urlRange)
                     if let url = URL(string: urlString) {
                         textStorage.addAttribute(.link, value: url, range: textRange)
+                        textStorage.addAttribute(.foregroundColor, value: existingLinkColor, range: textRange)
                     }
                     if !cursorInside(cursor, matchRange) {
                         newHidden.insert(matchRange.location)

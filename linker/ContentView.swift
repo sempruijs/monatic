@@ -247,6 +247,14 @@ struct ContentView: View {
     private func openLinkedFile(_ name: String) {
         if let url = appState.graph.url(for: name) {
             openFile(url)
+        } else {
+            guard let vault = appState.vaultURL else { return }
+            let url = vault.appendingPathComponent("\(name).md")
+            do {
+                try Data().write(to: url)
+                appState.graph.addFile(name: name, url: url)
+                openFile(url)
+            } catch {}
         }
     }
 
