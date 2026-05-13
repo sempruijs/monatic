@@ -9,6 +9,7 @@ class AppState {
     var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
     var templatesFolderURL: URL?
     var newFileFolderRelativePath: String = UserDefaults.standard.string(forKey: "newFileFolderRelativePath") ?? ""
+    var autoSave: Bool = UserDefaults.standard.object(forKey: "autoSave") as? Bool ?? true
     var newTabShouldQuickOpen = false
     private var hasRestored = false
     private var hasRestoredTemplates = false

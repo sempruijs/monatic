@@ -206,7 +206,7 @@ struct ContentView: View {
                         onCursorChange: { cursorPosition = $0 },
                         onTextChange: { newContent in
                             fileContent = newContent
-                            if let url = openFileURL {
+                            if appState.autoSave, let url = openFileURL {
                                 try? newContent.write(to: url, atomically: true, encoding: .utf8)
                             }
                             if let name = currentNoteName {

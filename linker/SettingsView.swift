@@ -49,6 +49,7 @@ struct SettingsView: View {
                         .frame(width: 45, alignment: .trailing)
                 }
                 Toggle("Word Wrap", isOn: $appState.wordWrap)
+                Toggle("Auto Save", isOn: $appState.autoSave)
             }
 
             Section("Templates") {
@@ -72,6 +73,9 @@ struct SettingsView: View {
         }
         .onChange(of: appState.newFileFolderRelativePath) {
             UserDefaults.standard.set(appState.newFileFolderRelativePath, forKey: "newFileFolderRelativePath")
+        }
+        .onChange(of: appState.autoSave) {
+            UserDefaults.standard.set(appState.autoSave, forKey: "autoSave")
         }
     }
 }
