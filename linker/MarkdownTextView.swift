@@ -232,6 +232,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var fontSize: CGFloat = 14
     var wordWrap: Bool = true
     @Binding var showFindBar: Bool
+    @Binding var textToInsert: String?
     var noteName: String
     @Binding var editingTitle: String?
     var onTitleSubmit: () -> Void
@@ -337,6 +338,19 @@ struct MarkdownTextView: NSViewRepresentable {
             }
         }
 
+        if let insertText = textToInsert, !context.coordinator.pendingInsert {
+            context.coordinator.pendingInsert = true
+            DispatchQueue.main.async {
+                let range = textView.selectedRange()
+                if textView.shouldChangeText(in: range, replacementString: insertText) {
+                    textView.replaceCharacters(in: range, with: insertText)
+                    textView.didChangeText()
+                }
+                self.textToInsert = nil
+                context.coordinator.pendingInsert = false
+            }
+        }
+
         if let titleField = context.coordinator.titleField {
             let displayTitle = editingTitle ?? noteName
             if titleField.stringValue != displayTitle {
@@ -410,6 +424,7 @@ struct MarkdownTextView: NSViewRepresentable {
         weak var titleField: NSTextField?
         var editingTitle: Binding<String?>?
         var onTitleSubmit: (() -> Void)?
+        var pendingInsert = false
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text

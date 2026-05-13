@@ -36,6 +36,10 @@ private struct DecreaseFontActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct ShowTemplatePickerKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -81,6 +85,11 @@ extension FocusedValues {
         get { self[DecreaseFontActionKey.self] }
         set { self[DecreaseFontActionKey.self] = newValue }
     }
+
+    var showTemplatePicker: Binding<Bool>? {
+        get { self[ShowTemplatePickerKey.self] }
+        set { self[ShowTemplatePickerKey.self] = newValue }
+    }
 }
 
 @main
@@ -95,6 +104,7 @@ struct linkerApp: App {
     @FocusedValue(\.findAction) var findAction
     @FocusedValue(\.increaseFontAction) var increaseFontAction
     @FocusedValue(\.decreaseFontAction) var decreaseFontAction
+    @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
 
     var body: some Scene {
         WindowGroup(id: "editor") {
@@ -169,6 +179,13 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("s")
                 .disabled(saveAction == nil)
+            }
+            CommandGroup(after: .newItem) {
+                Button("Insert Template") {
+                    showTemplatePicker = true
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(showTemplatePicker == nil)
             }
         }
 

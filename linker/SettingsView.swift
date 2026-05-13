@@ -19,6 +19,17 @@ struct SettingsView: View {
                 }
                 Toggle("Word Wrap", isOn: $appState.wordWrap)
             }
+
+            Section("Templates") {
+                HStack {
+                    Text(appState.templatesFolderURL?.lastPathComponent ?? "No folder selected")
+                        .foregroundStyle(appState.templatesFolderURL != nil ? .primary : .secondary)
+                    Spacer()
+                    Button("Select Folder") {
+                        appState.selectTemplatesFolder()
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 400)

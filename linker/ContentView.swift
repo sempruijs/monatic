@@ -66,6 +66,8 @@ struct ContentView: View {
     @State private var focusTitleField: Bool = false
     @State private var showLinks: Bool = false
     @State private var showFindBar: Bool = false
+    @State private var showTemplatePicker: Bool = false
+    @State private var textToInsert: String?
     @State private var history = NavigationHistory()
 
     private var currentNoteName: String? {
@@ -83,10 +85,17 @@ struct ContentView: View {
             if showQuickOpen {
                 QuickOpenPanel(isPresented: $showQuickOpen, onOpenFile: openFile)
             }
+
+            if showTemplatePicker {
+                TemplatePicker(isPresented: $showTemplatePicker, noteName: currentNoteName ?? "") { processed in
+                    textToInsert = processed
+                }
+            }
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
             appState.restoreVaultIfNeeded()
+            appState.restoreTemplatesFolderIfNeeded()
             if appState.vaultURL != nil && openFileURL == nil {
                 showQuickOpen = true
             }
@@ -100,6 +109,7 @@ struct ContentView: View {
         .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
         .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
         .focusedSceneValue(\.findAction) { showFindBar = true }
+        .focusedSceneValue(\.showTemplatePicker, $showTemplatePicker)
         .focusedSceneValue(\.increaseFontAction) { appState.increaseFontSize() }
         .focusedSceneValue(\.decreaseFontAction) { appState.decreaseFontSize() }
     }
@@ -126,6 +136,7 @@ struct ContentView: View {
                         fontSize: appState.fontSize,
                         wordWrap: appState.wordWrap,
                         showFindBar: $showFindBar,
+                        textToInsert: $textToInsert,
                         noteName: currentNoteName ?? "",
                         editingTitle: $editingTitle,
                         onTitleSubmit: { renameCurrentFile() },
