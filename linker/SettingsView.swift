@@ -25,6 +25,19 @@ struct SettingsView: View {
                 }
             }
 
+            Section("New Files") {
+                HStack {
+                    Text("Folder")
+                    Spacer()
+                    TextField("Vault root", text: $appState.newFileFolderRelativePath)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                }
+                Text("Relative path from vault root. Leave empty for vault root.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Editor") {
                 HStack {
                     Text("Text Size")
@@ -56,6 +69,9 @@ struct SettingsView: View {
         }
         .onChange(of: appState.wordWrap) {
             UserDefaults.standard.set(appState.wordWrap, forKey: "wordWrap")
+        }
+        .onChange(of: appState.newFileFolderRelativePath) {
+            UserDefaults.standard.set(appState.newFileFolderRelativePath, forKey: "newFileFolderRelativePath")
         }
     }
 }

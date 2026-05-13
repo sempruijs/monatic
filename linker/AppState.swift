@@ -8,9 +8,16 @@ class AppState {
     var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
     var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
     var templatesFolderURL: URL?
+    var newFileFolderRelativePath: String = UserDefaults.standard.string(forKey: "newFileFolderRelativePath") ?? ""
     var newTabShouldQuickOpen = false
     private var hasRestored = false
     private var hasRestoredTemplates = false
+
+    var newFileFolder: URL? {
+        guard let vault = vaultURL else { return nil }
+        if newFileFolderRelativePath.isEmpty { return vault }
+        return vault.appendingPathComponent(newFileFolderRelativePath)
+    }
 
     func increaseFontSize() {
         fontSize = min(fontSize + 1, 48)

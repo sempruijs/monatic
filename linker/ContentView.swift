@@ -354,13 +354,14 @@ struct ContentView: View {
     }
 
     private func createNewFile() {
-        guard let vault = appState.vaultURL else { return }
+        guard let folder = appState.newFileFolder else { return }
         let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = "Untitled"
-        var url = vault.appendingPathComponent("\(name).md")
+        var url = folder.appendingPathComponent("\(name).md")
         var counter = 1
         while fm.fileExists(atPath: url.path(percentEncoded: false)) {
-            url = vault.appendingPathComponent("\(name) \(counter).md")
+            url = folder.appendingPathComponent("\(name) \(counter).md")
             counter += 1
         }
         do {
