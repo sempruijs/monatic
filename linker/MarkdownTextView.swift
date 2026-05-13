@@ -312,6 +312,18 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.titleField = titleField
         context.coordinator.editingTitle = $editingTitle
         context.coordinator.onTitleSubmit = onTitleSubmit
+        context.coordinator.existingFileNames = Set(fileNames)
+        context.coordinator.currentFileName = noteName
+
+        let validationLabel = NSTextField(labelWithString: "")
+        validationLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        validationLabel.textColor = .systemRed
+        validationLabel.isBordered = false
+        validationLabel.drawsBackground = false
+        validationLabel.isHidden = true
+        validationLabel.frame = NSRect(x: 5, y: 10 + ceil(titleFontSize * 1.4) + 2, width: 500, height: 16)
+        textView.addSubview(validationLabel)
+        context.coordinator.validationLabel = validationLabel
 
         scrollView.documentView = textView
 
@@ -327,6 +339,8 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.editingTitle = $editingTitle
         context.coordinator.onTitleSubmit = onTitleSubmit
+        context.coordinator.existingFileNames = Set(fileNames)
+        context.coordinator.currentFileName = noteName
         textView.onFollowLink = { name in context.coordinator.onOpenLink(name) }
 
         if showFindBar {
@@ -365,6 +379,13 @@ struct MarkdownTextView: NSViewRepresentable {
             let targetWidth = scrollView.contentSize.width - 10
             if targetWidth > 0 && titleField.frame.width != targetWidth {
                 titleField.frame.size.width = targetWidth
+            }
+
+            if let validationLabel = context.coordinator.validationLabel {
+                validationLabel.frame.origin.y = 10 + ceil(titleFontSize * 1.4) + 2
+                if targetWidth > 0 {
+                    validationLabel.frame.size.width = targetWidth
+                }
             }
         }
 
@@ -422,9 +443,12 @@ struct MarkdownTextView: NSViewRepresentable {
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
         weak var titleField: NSTextField?
+        weak var validationLabel: NSTextField?
         var editingTitle: Binding<String?>?
         var onTitleSubmit: (() -> Void)?
         var pendingInsert = false
+        var existingFileNames: Set<String> = []
+        var currentFileName: String = ""
 
         init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text
@@ -437,11 +461,17 @@ struct MarkdownTextView: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField, field === titleField else { return }
             editingTitle?.wrappedValue = field.stringValue
+            let error = validateFileName(field.stringValue)
+            validationLabel?.stringValue = error ?? ""
+            validationLabel?.isHidden = error == nil
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard control === titleField else { return false }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                if validateFileName(titleField?.stringValue ?? "") != nil {
+                    return true
+                }
                 onTitleSubmit?()
                 if let tv = (control.superview as? LinkCompletionTextView) {
                     control.window?.makeFirstResponder(tv)
@@ -449,6 +479,20 @@ struct MarkdownTextView: NSViewRepresentable {
                 return true
             }
             return false
+        }
+
+        private func validateFileName(_ name: String) -> String? {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return nil }
+            let invalid = trimmed.filter { $0 == "/" || $0 == ":" }
+            if !invalid.isEmpty {
+                let chars = Set(invalid).map { "\"\($0)\"" }.joined(separator: " and ")
+                return "File name cannot contain \(chars)"
+            }
+            if trimmed != currentFileName && existingFileNames.contains(trimmed) {
+                return "A file named \"\(trimmed)\" already exists"
+            }
+            return nil
         }
 
         // MARK: - NSLayoutManagerDelegate
