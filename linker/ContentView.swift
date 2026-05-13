@@ -299,7 +299,19 @@ struct ContentView: View {
         } catch {}
     }
 
+    private static let textExtensions: Set<String> = ["md", "markdown", "txt", ""]
+
     private func openLinkedFile(_ name: String) {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if !ext.isEmpty && !Self.textExtensions.contains(ext) {
+            guard let vault = appState.vaultURL else { return }
+            let url = vault.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+
         if let url = appState.graph.url(for: name) {
             openFile(url)
         } else {
