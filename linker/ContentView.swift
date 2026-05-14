@@ -1,4 +1,36 @@
+import PDFKit
 import SwiftUI
+
+enum DocumentType {
+    case markdown
+    case pdf
+
+    init(url: URL) {
+        switch url.pathExtension.lowercased() {
+        case "pdf":
+            self = .pdf
+        default:
+            self = .markdown
+        }
+    }
+}
+
+private struct PDFDocumentView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.document = PDFDocument(url: url)
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        if pdfView.document?.documentURL != url {
+            pdfView.document = PDFDocument(url: url)
+        }
+    }
+}
 
 private struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -85,6 +117,11 @@ struct ContentView: View {
     @State private var showRenameReferencesAlert: Bool = false
     @State private var pendingRenameOldName: String?
 
+    private var documentType: DocumentType {
+        guard let url = openFileURL else { return .markdown }
+        return DocumentType(url: url)
+    }
+
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
     }
@@ -151,7 +188,7 @@ struct ContentView: View {
         .navigationTitle(currentNoteName ?? "linker")
         .background(WindowConfigurator())
         .onOpenURL { url in
-            guard ["md", "markdown", "txt"].contains(url.pathExtension) else { return }
+            guard ["md", "markdown", "txt", "pdf"].contains(url.pathExtension.lowercased()) else { return }
             openFile(url)
         }
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
@@ -188,34 +225,39 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if openFileURL != nil {
+            if let url = openFileURL {
                 HStack(spacing: 0) {
-                    MarkdownTextView(
-                        text: $fileContent,
-                        fileNames: appState.graph.sortedNames,
-                        fontSize: appState.fontSize,
-                        wordWrap: appState.wordWrap,
-                        showFindBar: $showFindBar,
-                        textToInsert: $textToInsert,
-                        cursorPositionToRestore: $cursorPositionToRestore,
-                        noteName: currentNoteName ?? "",
-                        editingTitle: $editingTitle,
-                        onTitleSubmit: { renameCurrentFile() },
-                        focusTitle: $focusTitleField,
-                        onOpenLink: { openLinkedFile($0) },
-                        onCursorChange: { cursorPosition = $0 },
-                        onTextChange: { newContent in
-                            fileContent = newContent
-                            if appState.autoSave, let url = openFileURL {
-                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                    switch documentType {
+                    case .markdown:
+                        MarkdownTextView(
+                            text: $fileContent,
+                            fileNames: appState.graph.sortedNames,
+                            fontSize: appState.fontSize,
+                            wordWrap: appState.wordWrap,
+                            showFindBar: $showFindBar,
+                            textToInsert: $textToInsert,
+                            cursorPositionToRestore: $cursorPositionToRestore,
+                            noteName: currentNoteName ?? "",
+                            editingTitle: $editingTitle,
+                            onTitleSubmit: { renameCurrentFile() },
+                            focusTitle: $focusTitleField,
+                            onOpenLink: { openLinkedFile($0) },
+                            onCursorChange: { cursorPosition = $0 },
+                            onTextChange: { newContent in
+                                fileContent = newContent
+                                if appState.autoSave, let openURL = openFileURL {
+                                    try? newContent.write(to: openURL, atomically: true, encoding: .utf8)
+                                }
+                                if let name = currentNoteName {
+                                    appState.graph.updateLinks(for: name, content: newContent)
+                                }
                             }
-                            if let name = currentNoteName {
-                                appState.graph.updateLinks(for: name, content: newContent)
-                            }
-                        }
-                    )
+                        )
+                    case .pdf:
+                        PDFDocumentView(url: url)
+                    }
 
-                    if showLinks {
+                    if showLinks && documentType == .markdown {
                         Divider()
                         linksSidebar
                     }
@@ -240,11 +282,13 @@ struct ContentView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            withAnimation { showLinks.toggle() }
-                        } label: {
-                            Label("Links", systemImage: "link")
+                    if documentType == .markdown {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                withAnimation { showLinks.toggle() }
+                            } label: {
+                                Label("Links", systemImage: "link")
+                            }
                         }
                     }
                 }
@@ -300,39 +344,67 @@ struct ContentView: View {
 
     private func openFile(_ url: URL) {
         history.saveCursorPosition(cursorPosition)
-        do {
-            fileContent = try String(contentsOf: url, encoding: .utf8)
+        switch DocumentType(url: url) {
+        case .markdown:
+            do {
+                fileContent = try String(contentsOf: url, encoding: .utf8)
+                openFileURL = url
+                editingTitle = nil
+                history.visit(url)
+            } catch {}
+        case .pdf:
+            fileContent = ""
             openFileURL = url
             editingTitle = nil
             history.visit(url)
-        } catch {}
+        }
         showQuickOpen = false
     }
 
     private func goBack() {
         history.saveCursorPosition(cursorPosition)
         guard let entry = history.goBack() else { return }
-        do {
-            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+        switch DocumentType(url: entry.url) {
+        case .markdown:
+            do {
+                fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+                openFileURL = entry.url
+                cursorPositionToRestore = entry.cursorPosition
+            } catch {}
+        case .pdf:
+            fileContent = ""
             openFileURL = entry.url
-            cursorPositionToRestore = entry.cursorPosition
-        } catch {}
+        }
     }
 
     private func goForward() {
         history.saveCursorPosition(cursorPosition)
         guard let entry = history.goForward() else { return }
-        do {
-            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+        switch DocumentType(url: entry.url) {
+        case .markdown:
+            do {
+                fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+                openFileURL = entry.url
+                cursorPositionToRestore = entry.cursorPosition
+            } catch {}
+        case .pdf:
+            fileContent = ""
             openFileURL = entry.url
-            cursorPositionToRestore = entry.cursorPosition
-        } catch {}
+        }
     }
 
     private static let textExtensions: Set<String> = ["md", "markdown", "txt", ""]
 
+    private static let inAppExtensions: Set<String> = ["pdf"]
+
     private func openLinkedFile(_ name: String) {
         let ext = (name as NSString).pathExtension.lowercased()
+        if Self.inAppExtensions.contains(ext) {
+            if let url = appState.graph.url(for: name) {
+                openFile(url)
+            }
+            return
+        }
         if !ext.isEmpty && !Self.textExtensions.contains(ext) {
             guard let vault = appState.vaultURL else { return }
             let url = vault.appendingPathComponent(name)
@@ -356,7 +428,7 @@ struct ContentView: View {
     }
 
     private func saveCurrentFile() {
-        guard let url = openFileURL else { return }
+        guard let url = openFileURL, documentType == .markdown else { return }
         try? fileContent.write(to: url, atomically: true, encoding: .utf8)
     }
 

@@ -18,6 +18,7 @@ class VaultGraph {
 
     static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
     private static let textExtensions: Set<String> = ["md", "markdown", "txt"]
+    private static let viewableExtensions: Set<String> = ["pdf"]
 
     var sortedNames: [String] {
         (files.map(\.name) + assetNames.sorted()).sorted {
@@ -51,6 +52,10 @@ class VaultGraph {
                         inLinks[link, default: []].insert(name)
                     }
                 }
+            } else if Self.viewableExtensions.contains(ext) {
+                let name = url.lastPathComponent
+                filesByName[name] = FileEntry(name: name, url: url)
+                assetNames.insert(name)
             } else if !Self.textExtensions.contains(ext) && !ext.isEmpty {
                 assetNames.insert(url.lastPathComponent)
             }
