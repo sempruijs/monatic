@@ -12,46 +12,6 @@ private struct NewFileActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-private struct NewTabActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct GoBackActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct GoForwardActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct FindActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct IncreaseFontActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct DecreaseFontActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct ShowTemplatePickerKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
-}
-
-private struct CloseOtherTabsActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct ToggleLinksActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-private struct DeleteFileActionKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -67,56 +27,6 @@ extension FocusedValues {
         get { self[NewFileActionKey.self] }
         set { self[NewFileActionKey.self] = newValue }
     }
-
-    var newTabAction: (() -> Void)? {
-        get { self[NewTabActionKey.self] }
-        set { self[NewTabActionKey.self] = newValue }
-    }
-
-    var goBackAction: (() -> Void)? {
-        get { self[GoBackActionKey.self] }
-        set { self[GoBackActionKey.self] = newValue }
-    }
-
-    var goForwardAction: (() -> Void)? {
-        get { self[GoForwardActionKey.self] }
-        set { self[GoForwardActionKey.self] = newValue }
-    }
-
-    var findAction: (() -> Void)? {
-        get { self[FindActionKey.self] }
-        set { self[FindActionKey.self] = newValue }
-    }
-
-    var increaseFontAction: (() -> Void)? {
-        get { self[IncreaseFontActionKey.self] }
-        set { self[IncreaseFontActionKey.self] = newValue }
-    }
-
-    var decreaseFontAction: (() -> Void)? {
-        get { self[DecreaseFontActionKey.self] }
-        set { self[DecreaseFontActionKey.self] = newValue }
-    }
-
-    var showTemplatePicker: Binding<Bool>? {
-        get { self[ShowTemplatePickerKey.self] }
-        set { self[ShowTemplatePickerKey.self] = newValue }
-    }
-
-    var closeOtherTabsAction: (() -> Void)? {
-        get { self[CloseOtherTabsActionKey.self] }
-        set { self[CloseOtherTabsActionKey.self] = newValue }
-    }
-
-    var toggleLinksAction: (() -> Void)? {
-        get { self[ToggleLinksActionKey.self] }
-        set { self[ToggleLinksActionKey.self] = newValue }
-    }
-
-    var deleteFileAction: (() -> Void)? {
-        get { self[DeleteFileActionKey.self] }
-        set { self[DeleteFileActionKey.self] = newValue }
-    }
 }
 
 @main
@@ -125,19 +35,9 @@ struct linkerApp: App {
     @FocusedBinding(\.showQuickOpen) var showQuickOpen
     @FocusedValue(\.saveAction) var saveAction
     @FocusedValue(\.newFileAction) var newFileAction
-    @FocusedValue(\.newTabAction) var newTabAction
-    @FocusedValue(\.goBackAction) var goBackAction
-    @FocusedValue(\.goForwardAction) var goForwardAction
-    @FocusedValue(\.findAction) var findAction
-    @FocusedValue(\.increaseFontAction) var increaseFontAction
-    @FocusedValue(\.decreaseFontAction) var decreaseFontAction
-    @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
-    @FocusedValue(\.closeOtherTabsAction) var closeOtherTabsAction
-    @FocusedValue(\.toggleLinksAction) var toggleLinksAction
-    @FocusedValue(\.deleteFileAction) var deleteFileAction
 
     var body: some Scene {
-        WindowGroup(id: "editor") {
+        WindowGroup {
             ContentView()
                 .environment(appState)
         }
@@ -149,12 +49,6 @@ struct linkerApp: App {
                 .keyboardShortcut("n")
                 .disabled(newFileAction == nil)
 
-                Button("New Tab") {
-                    newTabAction?()
-                }
-                .keyboardShortcut("t")
-                .disabled(newTabAction == nil)
-
                 Divider()
 
                 Button("Quick Open") {
@@ -163,81 +57,12 @@ struct linkerApp: App {
                 .keyboardShortcut("o")
                 .disabled(showQuickOpen == nil)
             }
-            CommandGroup(after: .newItem) {
-                Divider()
-                Button("Close Tab") {
-                    NSApp.keyWindow?.performClose(nil)
-                }
-                .keyboardShortcut("w")
-
-                Button("Close Other Tabs") {
-                    closeOtherTabsAction?()
-                }
-                .keyboardShortcut("w", modifiers: [.command, .option])
-                .disabled(closeOtherTabsAction == nil)
-
-                Divider()
-
-                Button("Delete File…") {
-                    deleteFileAction?()
-                }
-                .keyboardShortcut(.delete, modifiers: [.command, .shift])
-                .disabled(deleteFileAction == nil)
-            }
-            CommandGroup(before: .toolbar) {
-                Button("Back") {
-                    goBackAction?()
-                }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(goBackAction == nil)
-
-                Button("Forward") {
-                    goForwardAction?()
-                }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(goForwardAction == nil)
-
-                Divider()
-
-                Button("Toggle Links") {
-                    toggleLinksAction?()
-                }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
-                .disabled(toggleLinksAction == nil)
-            }
-            CommandGroup(after: .toolbar) {
-                Button("Increase Size") {
-                    increaseFontAction?()
-                }
-                .keyboardShortcut("=", modifiers: .command)
-                .disabled(increaseFontAction == nil)
-
-                Button("Decrease Size") {
-                    decreaseFontAction?()
-                }
-                .keyboardShortcut("-", modifiers: .command)
-                .disabled(decreaseFontAction == nil)
-            }
-            CommandGroup(replacing: .textEditing) {
-                Button("Find…") {
-                    findAction?()
-                }
-                .keyboardShortcut("f")
-                .disabled(findAction == nil)
-            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
                     saveAction?()
                 }
                 .keyboardShortcut("s")
                 .disabled(saveAction == nil)
-            }
-            CommandGroup(after: .newItem) {
-                Button("Insert Template") {
-                    showTemplatePicker = true
-                }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
-                .disabled(showTemplatePicker == nil)
             }
         }
 
