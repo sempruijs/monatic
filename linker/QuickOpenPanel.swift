@@ -34,6 +34,10 @@ struct QuickOpenPanel: View {
                         }
                         return .handled
                     }
+                    .onKeyPress(.escape) {
+                        close()
+                        return .handled
+                    }
                     .padding(12)
 
                 Divider()
@@ -80,8 +84,10 @@ struct QuickOpenPanel: View {
         .onTapGesture { close() }
         .onExitCommand { close() }
         .onAppear {
-            isSearchFocused = true
             searchResults = appState.graph.search("")
+            DispatchQueue.main.async {
+                isSearchFocused = true
+            }
         }
         .onChange(of: searchQuery) {
             searchResults = appState.graph.search(searchQuery)
