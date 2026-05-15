@@ -1,7 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @State private var showVaultPicker = false
+    @State private var showTemplatesPicker = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -20,7 +23,7 @@ struct SettingsView: View {
                         }
                     }
                     Button("Change…") {
-                        appState.selectVault()
+                        showVaultPicker = true
                     }
                 }
             }
@@ -58,13 +61,25 @@ struct SettingsView: View {
                         .foregroundStyle(appState.templatesFolderURL != nil ? .primary : .secondary)
                     Spacer()
                     Button("Select Folder") {
-                        appState.selectTemplatesFolder()
+                        showTemplatesPicker = true
                     }
                 }
             }
         }
         .formStyle(.grouped)
         .frame(width: 400)
+        .fileImporter(isPresented: $showVaultPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                _ = url.startAccessingSecurityScopedResource()
+                appState.setVault(url)
+            }
+        }
+        .fileImporter(isPresented: $showTemplatesPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                _ = url.startAccessingSecurityScopedResource()
+                appState.setTemplatesFolder(url)
+            }
+        }
         .onChange(of: appState.fontSize) {
             UserDefaults.standard.set(appState.fontSize, forKey: "fontSize")
         }

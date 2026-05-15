@@ -1,5 +1,6 @@
 import PDFKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum DocumentType {
     case markdown
@@ -101,6 +102,7 @@ class NavigationHistory {
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
     @State private var openFileURL: URL?
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
@@ -116,6 +118,7 @@ struct ContentView: View {
     @State private var cursorPositionToRestore: Int?
     @State private var showRenameReferencesAlert: Bool = false
     @State private var pendingRenameOldName: String?
+    @State private var showVaultPicker: Bool = false
 
     private var documentType: DocumentType {
         guard let url = openFileURL else { return .markdown }
@@ -213,7 +216,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Button("Open Existing Vault") {
-                    appState.selectVault()
+                    showVaultPicker = true
                 }
                 Button("Create New Vault") {
                     appState.createNewVault()
@@ -221,6 +224,12 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fileImporter(isPresented: $showVaultPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                _ = url.startAccessingSecurityScopedResource()
+                appState.setVault(url)
+            }
+        }
     }
 
     private var editorView: some View {
@@ -409,7 +418,7 @@ struct ContentView: View {
             guard let vault = appState.vaultURL else { return }
             let url = vault.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-                NSWorkspace.shared.open(url)
+                openURL(url)
             }
             return
         }

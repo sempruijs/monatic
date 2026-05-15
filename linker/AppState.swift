@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 @Observable
 class AppState {
@@ -140,15 +141,7 @@ class AppState {
         }
     }
 
-    func selectVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select your vault folder"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
+    func setVault(_ url: URL) {
         vaultURL = url
         graph.build(from: url)
 
@@ -192,15 +185,7 @@ class AppState {
         UserDefaults.standard.removeObject(forKey: "templatesFolderBookmark")
     }
 
-    func selectTemplatesFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select your templates folder"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
+    func setTemplatesFolder(_ url: URL) {
         templatesFolderURL = url
 
         if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {

@@ -1,61 +1,4 @@
-import AppKit
 import SwiftUI
-
-private struct TemplateTextField: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String
-    var onSubmit: () -> Void
-    var onArrowDown: (() -> Void)?
-    var onArrowUp: (() -> Void)?
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
-        field.placeholderString = placeholder
-        field.isBordered = false
-        field.drawsBackground = false
-        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
-        field.focusRingType = .none
-        field.delegate = context.coordinator
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-        }
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: TemplateTextField
-        init(_ parent: TemplateTextField) { self.parent = parent }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
-            }
-            if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                parent.onArrowDown?()
-                return true
-            }
-            if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                parent.onArrowUp?()
-                return true
-            }
-            return false
-        }
-    }
-}
 
 struct TemplatePicker: View {
     @Environment(AppState.self) private var appState
@@ -66,6 +9,7 @@ struct TemplatePicker: View {
     @State private var searchQuery = ""
     @State private var templates: [(name: String, url: URL)] = []
     @State private var selectedIndex: Int = 0
+    @FocusState private var isSearchFocused: Bool
 
     private var filtered: [(name: String, url: URL)] {
         let query = searchQuery.trimmingCharacters(in: .whitespaces)
@@ -76,22 +20,24 @@ struct TemplatePicker: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                TemplateTextField(
-                    text: $searchQuery,
-                    placeholder: "Search templates...",
-                    onSubmit: { submitSelection() },
-                    onArrowDown: {
+                TextField("Search templates...", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16))
+                    .focused($isSearchFocused)
+                    .onSubmit { submitSelection() }
+                    .onKeyPress(.downArrow) {
                         if selectedIndex < filtered.count - 1 {
                             selectedIndex += 1
                         }
-                    },
-                    onArrowUp: {
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
                         if selectedIndex > 0 {
                             selectedIndex -= 1
                         }
+                        return .handled
                     }
-                )
-                .padding(12)
+                    .padding(12)
 
                 Divider()
 
@@ -140,7 +86,10 @@ struct TemplatePicker: View {
         .background(Color.black.opacity(0.3))
         .onTapGesture { close() }
         .onExitCommand { close() }
-        .onAppear { templates = appState.templateFiles() }
+        .onAppear {
+            isSearchFocused = true
+            templates = appState.templateFiles()
+        }
         .onChange(of: searchQuery) { selectedIndex = 0 }
     }
 
