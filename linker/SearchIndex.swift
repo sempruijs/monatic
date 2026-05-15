@@ -20,6 +20,26 @@ final class SearchIndex: @unchecked Sendable {
         bytes = names.map { Array($0.lowercased().utf8) }
     }
 
+    nonisolated func insert(_ entry: VaultGraph.FileEntry) {
+        names.append(entry.name)
+        urls.append(entry.url)
+        bytes.append(Array(entry.name.lowercased().utf8))
+    }
+
+    nonisolated func remove(name: String) {
+        guard let idx = names.firstIndex(of: name) else { return }
+        names.remove(at: idx)
+        urls.remove(at: idx)
+        bytes.remove(at: idx)
+    }
+
+    nonisolated func rename(oldName: String, newName: String, newURL: URL) {
+        guard let idx = names.firstIndex(of: oldName) else { return }
+        names[idx] = newName
+        urls[idx] = newURL
+        bytes[idx] = Array(newName.lowercased().utf8)
+    }
+
     nonisolated func search(_ query: String, limit: Int = 20, cancelled: () -> Bool = { false }) -> [Result] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {

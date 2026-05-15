@@ -13,18 +13,13 @@ class VaultGraph {
     private var outLinks: [String: Set<String>] = [:]
     private var inLinks: [String: Set<String>] = [:]
     let searchIndex = SearchIndex()
+    private(set) var sortedNames: [String] = []
 
     typealias SearchResult = SearchIndex.Result
 
     static let linkPattern = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
     private static let textExtensions: Set<String> = ["md", "markdown", "txt"]
     private static let viewableExtensions: Set<String> = ["pdf"]
-
-    var sortedNames: [String] {
-        (files.map(\.name) + assetNames.sorted()).sorted {
-            $0.localizedCompare($1) == .orderedAscending
-        }
-    }
 
     func build(from vaultURL: URL) {
         filesByName.removeAll()
@@ -39,19 +34,14 @@ class VaultGraph {
             options: [.skipsHiddenFiles]
         ) else { return }
 
+        var mdFiles: [(String, URL)] = []
+
         for case let url as URL in enumerator {
             let ext = url.pathExtension.lowercased()
             if ext == "md" {
                 let name = url.deletingPathExtension().lastPathComponent
                 filesByName[name] = FileEntry(name: name, url: url)
-
-                if let content = try? String(contentsOf: url, encoding: .utf8) {
-                    let links = Self.parseLinks(from: content)
-                    outLinks[name] = links
-                    for link in links {
-                        inLinks[link, default: []].insert(name)
-                    }
-                }
+                mdFiles.append((name, url))
             } else if Self.viewableExtensions.contains(ext) {
                 let name = url.lastPathComponent
                 filesByName[name] = FileEntry(name: name, url: url)
@@ -65,6 +55,27 @@ class VaultGraph {
             $0.name.localizedCompare($1.name) == .orderedAscending
         }
         searchIndex.rebuild(from: files)
+        rebuildSortedNames()
+
+        Task.detached { [weak self] in
+            var newOutLinks: [String: Set<String>] = [:]
+            var newInLinks: [String: Set<String>] = [:]
+
+            for (name, url) in mdFiles {
+                guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let links = VaultGraph.parseLinks(from: content)
+                newOutLinks[name] = links
+                for link in links {
+                    newInLinks[link, default: []].insert(name)
+                }
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.outLinks = newOutLinks
+                self.inLinks = newInLinks
+            }
+        }
     }
 
     func fuzzySearch(_ query: String, limit: Int = 20) -> [SearchResult] {
@@ -98,15 +109,16 @@ class VaultGraph {
     func addFile(name: String, url: URL) {
         let entry = FileEntry(name: name, url: url)
         filesByName[name] = entry
-        files = filesByName.values.sorted {
-            $0.name.localizedCompare($1.name) == .orderedAscending
-        }
-        searchIndex.rebuild(from: files)
+        let idx = files.firstIndex { name.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
+        files.insert(entry, at: idx)
+        searchIndex.insert(entry)
+        rebuildSortedNames()
     }
 
     func rename(from oldName: String, to newName: String, newURL: URL) {
-        guard let _ = filesByName.removeValue(forKey: oldName) else { return }
-        filesByName[newName] = FileEntry(name: newName, url: newURL)
+        guard filesByName.removeValue(forKey: oldName) != nil else { return }
+        let entry = FileEntry(name: newName, url: newURL)
+        filesByName[newName] = entry
 
         if let links = outLinks.removeValue(forKey: oldName) {
             outLinks[newName] = links
@@ -120,10 +132,13 @@ class VaultGraph {
             inLinks[newName] = backrefs
         }
 
-        files = filesByName.values.sorted {
-            $0.name.localizedCompare($1.name) == .orderedAscending
+        if let idx = files.firstIndex(where: { $0.name == oldName }) {
+            files.remove(at: idx)
         }
-        searchIndex.rebuild(from: files)
+        let insertIdx = files.firstIndex { newName.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
+        files.insert(entry, at: insertIdx)
+        searchIndex.rename(oldName: oldName, newName: newName, newURL: newURL)
+        rebuildSortedNames()
     }
 
     func removeFile(name: String) {
@@ -135,16 +150,17 @@ class VaultGraph {
             }
         }
 
-        inLinks.removeValue(forKey: name)
-
-        for (source, _) in outLinks where outLinks[source]?.contains(name) == true {
-            outLinks[source]?.remove(name)
+        if let referrers = inLinks.removeValue(forKey: name) {
+            for referrer in referrers {
+                outLinks[referrer]?.remove(name)
+            }
         }
 
-        files = filesByName.values.sorted {
-            $0.name.localizedCompare($1.name) == .orderedAscending
+        if let idx = files.firstIndex(where: { $0.name == name }) {
+            files.remove(at: idx)
         }
-        searchIndex.rebuild(from: files)
+        searchIndex.remove(name: name)
+        rebuildSortedNames()
     }
 
     func updateLinks(for name: String, content: String) {
@@ -161,7 +177,13 @@ class VaultGraph {
         outLinks[name] = newLinks
     }
 
-    private static func parseLinks(from content: String) -> Set<String> {
+    private func rebuildSortedNames() {
+        sortedNames = (files.map(\.name) + assetNames.sorted()).sorted {
+            $0.localizedCompare($1) == .orderedAscending
+        }
+    }
+
+    static func parseLinks(from content: String) -> Set<String> {
         let nsContent = content as NSString
         let range = NSRange(location: 0, length: nsContent.length)
         let matches = linkPattern.matches(in: content, range: range)
