@@ -1,5 +1,45 @@
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
+
+@Observable
+class NavigationHistory {
+    struct Entry {
+        let url: URL
+        var cursorPosition: Int
+    }
+
+    private var stack: [Entry] = []
+    private var currentIndex: Int = -1
+    @ObservationIgnored var latestCursorPosition: Int = 0
+
+    var canGoBack: Bool { currentIndex > 0 }
+    var canGoForward: Bool { currentIndex < stack.count - 1 }
+
+    func visit(_ url: URL) {
+        if currentIndex >= 0, currentIndex < stack.count, stack[currentIndex].url == url { return }
+        stack.removeSubrange((currentIndex + 1)...)
+        stack.append(Entry(url: url, cursorPosition: 0))
+        currentIndex = stack.count - 1
+    }
+
+    func saveCursorPosition(_ position: Int) {
+        guard currentIndex >= 0, currentIndex < stack.count else { return }
+        stack[currentIndex].cursorPosition = position
+    }
+
+    func goBack() -> Entry? {
+        guard canGoBack else { return nil }
+        currentIndex -= 1
+        return stack[currentIndex]
+    }
+
+    func goForward() -> Entry? {
+        guard canGoForward else { return nil }
+        currentIndex += 1
+        return stack[currentIndex]
+    }
+}
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
@@ -7,6 +47,8 @@ struct ContentView: View {
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
     @State private var showVaultPicker: Bool = false
+    @State private var history = NavigationHistory()
+    @State private var cursorPositionToRestore: Int?
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
@@ -37,6 +79,8 @@ struct ContentView: View {
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
+        .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
+        .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
     }
 
     private var selectVaultView: some View {
@@ -67,10 +111,12 @@ struct ContentView: View {
             if openFileURL != nil {
                 MarkdownTextView(
                     text: $fileContent,
-                    fileNames: Set(appState.graph.files.map(\.name)),
+                    fileNames: appState.graph.fileNameSet,
                     fontSize: appState.fontSize,
                     wordWrap: appState.wordWrap,
+                    cursorPositionToRestore: $cursorPositionToRestore,
                     onOpenLink: { openLinkedFile($0) },
+                    onCursorChange: { history.latestCursorPosition = $0 },
                     onTextChange: { newContent in
                         fileContent = newContent
                         if appState.autoSave, let url = openFileURL {
@@ -78,6 +124,19 @@ struct ContentView: View {
                         }
                     }
                 )
+                .toolbar {
+                    ToolbarItemGroup(placement: .navigation) {
+                        Button(action: goBack) {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .disabled(!history.canGoBack)
+
+                        Button(action: goForward) {
+                            Label("Forward", systemImage: "chevron.right")
+                        }
+                        .disabled(!history.canGoForward)
+                    }
+                }
             } else {
                 Text("Press \u{2318}O to open a file")
                     .foregroundStyle(.secondary)
@@ -101,11 +160,33 @@ struct ContentView: View {
     }
 
     private func openFile(_ url: URL) {
+        history.saveCursorPosition(history.latestCursorPosition)
         do {
             fileContent = try String(contentsOf: url, encoding: .utf8)
             openFileURL = url
+            history.visit(url)
         } catch {}
         showQuickOpen = false
+    }
+
+    private func goBack() {
+        history.saveCursorPosition(history.latestCursorPosition)
+        guard let entry = history.goBack() else { return }
+        do {
+            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+            openFileURL = entry.url
+            cursorPositionToRestore = entry.cursorPosition
+        } catch {}
+    }
+
+    private func goForward() {
+        history.saveCursorPosition(history.latestCursorPosition)
+        guard let entry = history.goForward() else { return }
+        do {
+            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+            openFileURL = entry.url
+            cursorPositionToRestore = entry.cursorPosition
+        } catch {}
     }
 
     private func saveCurrentFile() {
