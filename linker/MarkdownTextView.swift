@@ -2,14 +2,17 @@ import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
+    var fileNames: Set<String>
     var fontSize: CGFloat
     var wordWrap: Bool
+    var onOpenLink: (String) -> Void
     var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(text: $text, onTextChange: onTextChange)
+        let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
         coordinator.fontSize = fontSize
         coordinator.wordWrap = wordWrap
+        coordinator.fileNames = fileNames
         return coordinator
     }
 
@@ -48,6 +51,10 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        textView.linkTextAttributes = [
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .cursor: NSCursor.pointingHand,
+        ]
         textView.textContainerInset = NSSize(width: 4, height: 8)
         textView.string = text
 
@@ -60,7 +67,9 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        context.coordinator.onOpenLink = onOpenLink
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.fileNames = fileNames
 
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
@@ -95,14 +104,17 @@ struct MarkdownTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var text: Binding<String>
+        var onOpenLink: (String) -> Void
         var onTextChange: ((String) -> Void)?
+        var fileNames: Set<String> = []
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
 
-        init(text: Binding<String>, onTextChange: ((String) -> Void)?) {
+        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
             self.text = text
+            self.onOpenLink = onOpenLink
             self.onTextChange = onTextChange
         }
 
@@ -154,7 +166,12 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            guard let url = link as? URL, url.scheme == "https" || url.scheme == "http" else { return false }
+            guard let url = link as? URL else { return false }
+            if url.scheme == "wikilink" {
+                let name = (url.host() ?? "").removingPercentEncoding ?? ""
+                onOpenLink(name)
+                return true
+            }
             NSWorkspace.shared.open(url)
             return true
         }
@@ -210,11 +227,19 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             // Wiki links [[...]]
+            let existingColor = NSColor.systemBlue
+            let missingColor = NSColor.systemBlue.withAlphaComponent(0.4)
             if let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]") {
                 for match in regex.matches(in: string, range: fullRange) {
                     let matchRange = match.range(at: 0)
                     let innerRange = match.range(at: 1)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: innerRange)
+                    let linkName = (string as NSString).substring(with: innerRange)
+                    let color = fileNames.contains(linkName) ? existingColor : missingColor
+                    let encoded = linkName.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? linkName
+                    if let url = URL(string: "wikilink://\(encoded)") {
+                        textStorage.addAttribute(.link, value: url, range: innerRange)
+                    }
+                    textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
                     if !cursorInside(cursor, matchRange) {
                         newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
                         newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))

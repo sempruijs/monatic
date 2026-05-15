@@ -67,8 +67,10 @@ struct ContentView: View {
             if openFileURL != nil {
                 MarkdownTextView(
                     text: $fileContent,
+                    fileNames: Set(appState.graph.files.map(\.name)),
                     fontSize: appState.fontSize,
                     wordWrap: appState.wordWrap,
+                    onOpenLink: { openLinkedFile($0) },
                     onTextChange: { newContent in
                         fileContent = newContent
                         if appState.autoSave, let url = openFileURL {
@@ -81,6 +83,20 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private func openLinkedFile(_ name: String) {
+        if let url = appState.graph.url(for: name) {
+            openFile(url)
+        } else {
+            guard let vault = appState.vaultURL else { return }
+            let url = vault.appendingPathComponent("\(name).md")
+            do {
+                try Data().write(to: url)
+                appState.graph.addFile(name: name, url: url)
+                openFile(url)
+            } catch {}
         }
     }
 
