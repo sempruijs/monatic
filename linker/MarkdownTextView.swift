@@ -5,11 +5,13 @@ struct MarkdownTextView: NSViewRepresentable {
     var fileNames: Set<String>
     var fontSize: CGFloat
     var wordWrap: Bool
+    @Binding var cursorPositionToRestore: Int?
     var onOpenLink: (String) -> Void
+    var onCursorChange: ((Int) -> Void)?
     var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onTextChange: onTextChange)
+        let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onCursorChange: onCursorChange, onTextChange: onTextChange)
         coordinator.fontSize = fontSize
         coordinator.wordWrap = wordWrap
         coordinator.fileNames = fileNames
@@ -68,8 +70,18 @@ struct MarkdownTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.onOpenLink = onOpenLink
+        context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onTextChange = onTextChange
         context.coordinator.fileNames = fileNames
+
+        if let position = cursorPositionToRestore {
+            DispatchQueue.main.async {
+                let safe = min(position, textView.string.count)
+                textView.setSelectedRange(NSRange(location: safe, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: safe, length: 0))
+                self.cursorPositionToRestore = nil
+            }
+        }
 
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
@@ -105,6 +117,7 @@ struct MarkdownTextView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var text: Binding<String>
         var onOpenLink: (String) -> Void
+        var onCursorChange: ((Int) -> Void)?
         var onTextChange: ((String) -> Void)?
         var fileNames: Set<String> = []
         var fontSize: CGFloat = 14
@@ -112,9 +125,10 @@ struct MarkdownTextView: NSViewRepresentable {
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
 
-        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onTextChange: ((String) -> Void)?) {
+        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onCursorChange: ((Int) -> Void)?, onTextChange: ((String) -> Void)?) {
             self.text = text
             self.onOpenLink = onOpenLink
+            self.onCursorChange = onCursorChange
             self.onTextChange = onTextChange
         }
 
@@ -162,6 +176,7 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
             isUpdating = true
             applyMarkdownStyling(to: textView)
+            onCursorChange?(textView.selectedRange().location)
             isUpdating = false
         }
 

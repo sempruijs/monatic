@@ -8,6 +8,7 @@ class VaultGraph {
     }
 
     private(set) var files: [FileEntry] = []
+    private(set) var fileNameSet: Set<String> = []
     private var filesByName: [String: FileEntry] = [:]
 
     func build(from vaultURL: URL) {
@@ -30,6 +31,7 @@ class VaultGraph {
         files = filesByName.values.sorted {
             $0.name.localizedCompare($1.name) == .orderedAscending
         }
+        fileNameSet = Set(filesByName.keys)
     }
 
     func search(_ query: String, limit: Int = 20) -> [FileEntry] {
@@ -54,6 +56,7 @@ class VaultGraph {
     func addFile(name: String, url: URL) {
         let entry = FileEntry(name: name, url: url)
         filesByName[name] = entry
+        fileNameSet.insert(name)
         let idx = files.firstIndex { name.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
         files.insert(entry, at: idx)
     }
