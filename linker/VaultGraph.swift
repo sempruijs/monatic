@@ -47,6 +47,10 @@ class VaultGraph {
         return results
     }
 
+    func url(for name: String) -> URL? {
+        filesByName[name]?.url
+    }
+
     func addFile(name: String, url: URL) {
         let entry = FileEntry(name: name, url: url)
         filesByName[name] = entry
