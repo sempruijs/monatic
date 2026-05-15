@@ -1,163 +1,18 @@
-import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum DocumentType {
-    case markdown
-    case pdf
-
-    init(url: URL) {
-        switch url.pathExtension.lowercased() {
-        case "pdf":
-            self = .pdf
-        default:
-            self = .markdown
-        }
-    }
-}
-
-private struct PDFDocumentView: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
-        pdfView.autoScales = true
-        pdfView.document = PDFDocument(url: url)
-        return pdfView
-    }
-
-    func updateNSView(_ pdfView: PDFView, context: Context) {
-        if pdfView.document?.documentURL != url {
-            pdfView.document = PDFDocument(url: url)
-        }
-    }
-}
-
-private struct WindowConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.tabbingMode = .preferred
-
-            if let existing = NSApp.windows.first(where: {
-                $0 !== window &&
-                $0.isVisible &&
-                $0.tabbingIdentifier == window.tabbingIdentifier &&
-                $0.tabGroup !== window.tabGroup
-            }) {
-                existing.addTabbedWindow(window, ordered: .above)
-                window.makeKeyAndOrderFront(nil)
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if !(window.tabGroup?.isTabBarVisible ?? false) {
-                    window.toggleTabBar(nil)
-                }
-            }
-        }
-        return view
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-@Observable
-class NavigationHistory {
-    struct Entry {
-        let url: URL
-        var cursorPosition: Int
-    }
-
-    private var stack: [Entry] = []
-    private var currentIndex: Int = -1
-
-    var canGoBack: Bool { currentIndex > 0 }
-    var canGoForward: Bool { currentIndex < stack.count - 1 }
-
-    func visit(_ url: URL) {
-        if currentIndex >= 0, currentIndex < stack.count, stack[currentIndex].url == url { return }
-        stack.removeSubrange((currentIndex + 1)...)
-        stack.append(Entry(url: url, cursorPosition: 0))
-        currentIndex = stack.count - 1
-    }
-
-    func saveCursorPosition(_ position: Int) {
-        guard currentIndex >= 0, currentIndex < stack.count else { return }
-        stack[currentIndex].cursorPosition = position
-    }
-
-    func goBack() -> Entry? {
-        guard canGoBack else { return nil }
-        currentIndex -= 1
-        return stack[currentIndex]
-    }
-
-    func goForward() -> Entry? {
-        guard canGoForward else { return nil }
-        currentIndex += 1
-        return stack[currentIndex]
-    }
-}
-
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.openURL) private var openURL
     @State private var openFileURL: URL?
     @State private var fileContent: String = ""
     @State private var showQuickOpen: Bool = false
-    @State private var editingTitle: String?
-    @State private var focusTitleField: Bool = false
-    @State private var showLinks: Bool = false
-    @State private var showFindBar: Bool = false
-    @State private var showTemplatePicker: Bool = false
-    @State private var textToInsert: String?
-    @State private var history = NavigationHistory()
-    @State private var showDeleteConfirmation: Bool = false
-    @State private var cursorPosition: Int = 0
-    @State private var cursorPositionToRestore: Int?
-    @State private var showRenameReferencesAlert: Bool = false
-    @State private var pendingRenameOldName: String?
     @State private var showVaultPicker: Bool = false
-
-    private var documentType: DocumentType {
-        guard let url = openFileURL else { return .markdown }
-        return DocumentType(url: url)
-    }
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
     }
 
     var body: some View {
-        mainContent
-            .focusedSceneValue(\.closeOtherTabsAction) { closeOtherTabs() }
-            .focusedSceneValue(\.toggleLinksAction) { withAnimation { showLinks.toggle() } }
-            .focusedSceneValue(\.deleteFileAction, openFileURL != nil ? { showDeleteConfirmation = true } : nil)
-            .alert("Delete File", isPresented: $showDeleteConfirmation) {
-                Button("Delete", role: .destructive) { deleteCurrentFile() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Are you sure you want to delete \"\(currentNoteName ?? "this file")\"? This cannot be undone.")
-            }
-            .alert("Update References", isPresented: $showRenameReferencesAlert) {
-                Button("Update") {
-                    if let oldName = pendingRenameOldName, let newName = currentNoteName {
-                        appState.graph.updateReferences(from: oldName, to: newName)
-                    }
-                    pendingRenameOldName = nil
-                    editingTitle = nil
-                }
-                Button("Skip", role: .cancel) {
-                    pendingRenameOldName = nil
-                    editingTitle = nil
-                }
-            } message: {
-                Text("Other files link to this note. Do you want to rename the references as well?")
-            }
-    }
-
-    private var mainContent: some View {
         ZStack {
             if appState.vaultURL != nil {
                 editorView
@@ -168,45 +23,20 @@ struct ContentView: View {
             if showQuickOpen {
                 QuickOpenPanel(isPresented: $showQuickOpen, onOpenFile: openFile)
             }
-
-            if showTemplatePicker {
-                TemplatePicker(isPresented: $showTemplatePicker, noteName: currentNoteName ?? "") { processed in
-                    textToInsert = processed
-                }
-            }
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
             appState.restoreVaultIfNeeded()
-            appState.restoreTemplatesFolderIfNeeded()
             if appState.vaultURL != nil && openFileURL == nil {
-                if appState.newTabShouldQuickOpen {
-                    appState.newTabShouldQuickOpen = false
-                    showQuickOpen = true
-                } else if let first = appState.graph.files.first {
+                if let first = appState.graph.files.first {
                     openFile(first.url)
                 }
             }
         }
-        .navigationTitle(currentNoteName ?? "linker")
-        .background(WindowConfigurator())
-        .onOpenURL { url in
-            guard ["md", "markdown", "txt", "pdf"].contains(url.pathExtension.lowercased()) else { return }
-            openFile(url)
-        }
+        .navigationTitle(currentNoteName ?? "Monatic")
         .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
         .focusedSceneValue(\.saveAction, saveCurrentFile)
         .focusedSceneValue(\.newFileAction, createNewFile)
-        .focusedSceneValue(\.newTabAction) {
-            appState.newTabShouldQuickOpen = true
-            openWindow(id: "editor")
-        }
-        .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
-        .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
-        .focusedSceneValue(\.findAction) { showFindBar = true }
-        .focusedSceneValue(\.showTemplatePicker, $showTemplatePicker)
-        .focusedSceneValue(\.increaseFontAction) { appState.increaseFontSize() }
-        .focusedSceneValue(\.decreaseFontAction) { appState.decreaseFontSize() }
     }
 
     private var selectVaultView: some View {
@@ -234,73 +64,18 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if let url = openFileURL {
-                HStack(spacing: 0) {
-                    switch documentType {
-                    case .markdown:
-                        MarkdownTextView(
-                            text: $fileContent,
-                            fileNames: appState.graph.sortedNames,
-                            fontSize: appState.fontSize,
-                            wordWrap: appState.wordWrap,
-                            showFindBar: $showFindBar,
-                            textToInsert: $textToInsert,
-                            cursorPositionToRestore: $cursorPositionToRestore,
-                            noteName: currentNoteName ?? "",
-                            editingTitle: $editingTitle,
-                            onTitleSubmit: { renameCurrentFile() },
-                            focusTitle: $focusTitleField,
-                            onOpenLink: { openLinkedFile($0) },
-                            onCursorChange: { cursorPosition = $0 },
-                            onTextChange: { newContent in
-                                fileContent = newContent
-                                if appState.autoSave, let openURL = openFileURL {
-                                    try? newContent.write(to: openURL, atomically: true, encoding: .utf8)
-                                }
-                                if let name = currentNoteName {
-                                    appState.graph.updateLinks(for: name, content: newContent)
-                                }
-                            }
-                        )
-                    case .pdf:
-                        PDFDocumentView(url: url)
-                    }
-
-                    if showLinks && documentType == .markdown {
-                        Divider()
-                        linksSidebar
-                    }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        Button(action: goBack) {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                        .disabled(!history.canGoBack)
-                    }
-                    ToolbarItem(placement: .navigation) {
-                        Button(action: goForward) {
-                            Label("Forward", systemImage: "chevron.right")
-                        }
-                        .disabled(!history.canGoForward)
-                    }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showDeleteConfirmation = true
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+            if openFileURL != nil {
+                MarkdownTextView(
+                    text: $fileContent,
+                    fontSize: appState.fontSize,
+                    wordWrap: appState.wordWrap,
+                    onTextChange: { newContent in
+                        fileContent = newContent
+                        if appState.autoSave, let url = openFileURL {
+                            try? newContent.write(to: url, atomically: true, encoding: .utf8)
                         }
                     }
-                    if documentType == .markdown {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                withAnimation { showLinks.toggle() }
-                            } label: {
-                                Label("Links", systemImage: "link")
-                            }
-                        }
-                    }
-                }
+                )
             } else {
                 Text("Press \u{2318}O to open a file")
                     .foregroundStyle(.secondary)
@@ -309,142 +84,22 @@ struct ContentView: View {
         }
     }
 
-    private var linksSidebar: some View {
-        let name = currentNoteName ?? ""
-        let outgoing = appState.graph.outgoing(from: name).sorted()
-        let incoming = appState.graph.incoming(to: name).sorted()
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                linkSection(title: "Outgoing", links: outgoing)
-                linkSection(title: "Incoming", links: incoming)
-            }
-            .padding()
-        }
-        .frame(width: 220)
-    }
-
-    private func linkSection(title: String, links: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            if links.isEmpty {
-                Text("None")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(links, id: \.self) { link in
-                    Button {
-                        openLinkedFile(link)
-                    } label: {
-                        Text(link)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                }
-            }
-        }
-    }
-
-    // MARK: - Actions
-
     private func openFile(_ url: URL) {
-        history.saveCursorPosition(cursorPosition)
-        switch DocumentType(url: url) {
-        case .markdown:
-            do {
-                fileContent = try String(contentsOf: url, encoding: .utf8)
-                openFileURL = url
-                editingTitle = nil
-                history.visit(url)
-            } catch {}
-        case .pdf:
-            fileContent = ""
+        do {
+            fileContent = try String(contentsOf: url, encoding: .utf8)
             openFileURL = url
-            editingTitle = nil
-            history.visit(url)
-        }
+        } catch {}
         showQuickOpen = false
     }
 
-    private func goBack() {
-        history.saveCursorPosition(cursorPosition)
-        guard let entry = history.goBack() else { return }
-        switch DocumentType(url: entry.url) {
-        case .markdown:
-            do {
-                fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-                openFileURL = entry.url
-                cursorPositionToRestore = entry.cursorPosition
-            } catch {}
-        case .pdf:
-            fileContent = ""
-            openFileURL = entry.url
-        }
-    }
-
-    private func goForward() {
-        history.saveCursorPosition(cursorPosition)
-        guard let entry = history.goForward() else { return }
-        switch DocumentType(url: entry.url) {
-        case .markdown:
-            do {
-                fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-                openFileURL = entry.url
-                cursorPositionToRestore = entry.cursorPosition
-            } catch {}
-        case .pdf:
-            fileContent = ""
-            openFileURL = entry.url
-        }
-    }
-
-    private static let textExtensions: Set<String> = ["md", "markdown", "txt", ""]
-
-    private static let inAppExtensions: Set<String> = ["pdf"]
-
-    private func openLinkedFile(_ name: String) {
-        let ext = (name as NSString).pathExtension.lowercased()
-        if Self.inAppExtensions.contains(ext) {
-            if let url = appState.graph.url(for: name) {
-                openFile(url)
-            }
-            return
-        }
-        if !ext.isEmpty && !Self.textExtensions.contains(ext) {
-            guard let vault = appState.vaultURL else { return }
-            let url = vault.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-                openURL(url)
-            }
-            return
-        }
-
-        if let url = appState.graph.url(for: name) {
-            openFile(url)
-        } else {
-            guard let vault = appState.vaultURL else { return }
-            let url = vault.appendingPathComponent("\(name).md")
-            do {
-                try Data().write(to: url)
-                appState.graph.addFile(name: name, url: url)
-                openFile(url)
-            } catch {}
-        }
-    }
-
     private func saveCurrentFile() {
-        guard let url = openFileURL, documentType == .markdown else { return }
+        guard let url = openFileURL else { return }
         try? fileContent.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func createNewFile() {
-        guard let folder = appState.newFileFolder else { return }
+        guard let folder = appState.vaultURL else { return }
         let fm = FileManager.default
-        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = "Untitled"
         var url = folder.appendingPathComponent("\(name).md")
         var counter = 1
@@ -461,60 +116,6 @@ struct ContentView: View {
         appState.graph.addFile(name: actualName, url: url)
         fileContent = ""
         openFileURL = url
-        editingTitle = actualName
-        focusTitleField = true
-    }
-
-    private func closeOtherTabs() {
-        guard let currentWindow = NSApp.keyWindow else { return }
-        for window in NSApp.windows where window !== currentWindow && window.tabbingIdentifier == currentWindow.tabbingIdentifier && window.isVisible {
-            window.performClose(nil)
-        }
-    }
-
-    private func deleteCurrentFile() {
-        guard let url = openFileURL else { return }
-        let name = url.deletingPathExtension().lastPathComponent
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            appState.graph.removeFile(name: name)
-            openFileURL = nil
-            fileContent = ""
-        } catch {}
-    }
-
-    private func renameCurrentFile() {
-        guard let oldURL = openFileURL,
-              let newTitle = editingTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !newTitle.isEmpty else {
-            editingTitle = nil
-            return
-        }
-
-        let oldName = oldURL.deletingPathExtension().lastPathComponent
-        guard newTitle != oldName else {
-            editingTitle = nil
-            return
-        }
-
-        let hasReferences = !appState.graph.incoming(to: oldName).isEmpty
-
-        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent("\(newTitle).md")
-        do {
-            try FileManager.default.moveItem(at: oldURL, to: newURL)
-            openFileURL = newURL
-            appState.graph.rename(from: oldName, to: newTitle, newURL: newURL)
-        } catch {
-            editingTitle = nil
-            return
-        }
-
-        if hasReferences {
-            pendingRenameOldName = oldName
-            showRenameReferencesAlert = true
-        } else {
-            editingTitle = nil
-        }
     }
 }
 

@@ -6,8 +6,7 @@ struct QuickOpenPanel: View {
     var onOpenFile: (URL) -> Void
 
     @State private var searchQuery = ""
-    @State private var searchResults: [SearchIndex.Result] = []
-    @State private var searchTask: Task<Void, Never>?
+    @State private var searchResults: [VaultGraph.FileEntry] = []
     @State private var selectedIndex: Int = 0
     @FocusState private var isSearchFocused: Bool
 
@@ -46,7 +45,8 @@ struct QuickOpenPanel: View {
                                 Button {
                                     select(result.url)
                                 } label: {
-                                    highlightedText(for: result)
+                                    Text(result.name)
+                                        .font(.system(size: 13))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 5)
@@ -81,47 +81,12 @@ struct QuickOpenPanel: View {
         .onExitCommand { close() }
         .onAppear {
             isSearchFocused = true
-            searchResults = appState.graph.searchIndex.search("")
+            searchResults = appState.graph.search("")
         }
         .onChange(of: searchQuery) {
-            searchTask?.cancel()
-            let query = searchQuery
-            let index = appState.graph.searchIndex
-            searchTask = Task.detached(priority: .userInitiated) {
-                try? await Task.sleep(for: .milliseconds(30))
-                guard !Task.isCancelled else { return }
-                let results = index.search(query, cancelled: { Task.isCancelled })
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self.searchResults = results
-                    self.selectedIndex = 0
-                }
-            }
+            searchResults = appState.graph.search(searchQuery)
+            selectedIndex = 0
         }
-    }
-
-    private func highlightedText(for result: SearchIndex.Result) -> Text {
-        let name = result.name
-        guard !result.highlights.isEmpty else {
-            return Text(name).font(.system(size: 13))
-        }
-
-        var text = Text("")
-        var currentIndex = name.startIndex
-
-        for range in result.highlights {
-            if currentIndex < range.lowerBound {
-                text = text + Text(name[currentIndex..<range.lowerBound]).font(.system(size: 13))
-            }
-            text = text + Text(name[range]).font(.system(size: 13)).bold()
-            currentIndex = range.upperBound
-        }
-
-        if currentIndex < name.endIndex {
-            text = text + Text(name[currentIndex..<name.endIndex]).font(.system(size: 13))
-        }
-
-        return text
     }
 
     private func select(_ url: URL) {

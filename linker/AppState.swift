@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 @Observable
 class AppState {
@@ -8,28 +7,8 @@ class AppState {
     var vaultURL: URL?
     var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
     var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
-    var templatesFolderURL: URL?
-    var newFileFolderRelativePath: String = UserDefaults.standard.string(forKey: "newFileFolderRelativePath") ?? ""
     var autoSave: Bool = UserDefaults.standard.object(forKey: "autoSave") as? Bool ?? true
-    var newTabShouldQuickOpen = false
     private var hasRestored = false
-    private var hasRestoredTemplates = false
-
-    var newFileFolder: URL? {
-        guard let vault = vaultURL else { return nil }
-        if newFileFolderRelativePath.isEmpty { return vault }
-        return vault.appendingPathComponent(newFileFolderRelativePath)
-    }
-
-    func increaseFontSize() {
-        fontSize = min(fontSize + 1, 48)
-        UserDefaults.standard.set(fontSize, forKey: "fontSize")
-    }
-
-    func decreaseFontSize() {
-        fontSize = max(fontSize - 1, 8)
-        UserDefaults.standard.set(fontSize, forKey: "fontSize")
-    }
 
     func restoreVaultIfNeeded() {
         guard !hasRestored else { return }
@@ -66,6 +45,17 @@ class AppState {
         UserDefaults.standard.removeObject(forKey: "vaultBookmark")
     }
 
+    func setVault(_ url: URL) {
+        vaultURL = url
+        graph.build(from: url)
+
+        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
+            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
+        } else if let bookmark = try? url.bookmarkData() {
+            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
+        }
+    }
+
     func clearVault() {
         vaultURL?.stopAccessingSecurityScopedResource()
         vaultURL = nil
@@ -83,9 +73,8 @@ class AppState {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let fm = FileManager.default
         do {
-            try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         } catch {
             return
         }
@@ -94,39 +83,14 @@ class AppState {
         let welcomeContent = """
         # Welcome to Monatic
 
-        Monatic is a markdown editor built around **[[wiki-style links]]**.
-
-        ## Formatting
-
-        You can use all common markdown formatting:
-
-        - **Bold** with `**double asterisks**`
-        - *Italic* with `*single asterisks*`
-        - Headings with `#` through `#####`
-
-        ## Links
-
-        Link to other notes by wrapping their name in double brackets: `[[Note Name]]`.
-        If the note doesn't exist yet, clicking the link will create it.
+        A simple markdown editor.
 
         ## Keyboard Shortcuts
 
-        - Cmd+N - New Note
-        - Cmd+O - Quick Open
-        - Cmd+T - New Tab
-        - Cmd+F - Find
-        - Cmd+S - Save
-        - Cmd+Shift+L - Toggle Links Sidebar
-        - Cmd+Shift+T - Insert Template
-        - Cmd+Shift+Delete - Delete Current File
-
-        ## Deleting Files
-
-        To delete a file, press **Cmd+Shift+Delete**. You will be asked to confirm before the file is moved to the Trash.
-
-        ## Learn More
-
-        Visit [monatic.pruijs.net](https://monatic.pruijs.net) for more information.
+        - Cmd+N — New Note
+        - Cmd+O — Quick Open
+        - Cmd+S — Save
+        - Cmd+F — Find
         """
 
         try? welcomeContent.write(to: welcomeURL, atomically: true, encoding: .utf8)
@@ -139,77 +103,5 @@ class AppState {
         } else if let bookmark = try? url.bookmarkData() {
             UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
         }
-    }
-
-    func setVault(_ url: URL) {
-        vaultURL = url
-        graph.build(from: url)
-
-        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
-        } else if let bookmark = try? url.bookmarkData() {
-            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
-        }
-    }
-
-    func restoreTemplatesFolderIfNeeded() {
-        guard !hasRestoredTemplates else { return }
-        hasRestoredTemplates = true
-
-        guard let bookmarkData = UserDefaults.standard.data(forKey: "templatesFolderBookmark"),
-              !bookmarkData.isEmpty else { return }
-
-        var isStale = false
-        if let url = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: .withSecurityScope,
-            bookmarkDataIsStale: &isStale
-        ), url.startAccessingSecurityScopedResource() {
-            templatesFolderURL = url
-            if isStale {
-                if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-                    UserDefaults.standard.set(bookmark, forKey: "templatesFolderBookmark")
-                }
-            }
-            return
-        }
-
-        if let url = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            bookmarkDataIsStale: &isStale
-        ), FileManager.default.isReadableFile(atPath: url.path(percentEncoded: false)) {
-            templatesFolderURL = url
-            return
-        }
-
-        UserDefaults.standard.removeObject(forKey: "templatesFolderBookmark")
-    }
-
-    func setTemplatesFolder(_ url: URL) {
-        templatesFolderURL = url
-
-        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-            UserDefaults.standard.set(bookmark, forKey: "templatesFolderBookmark")
-        } else if let bookmark = try? url.bookmarkData() {
-            UserDefaults.standard.set(bookmark, forKey: "templatesFolderBookmark")
-        }
-    }
-
-    func templateFiles() -> [(name: String, url: URL)] {
-        guard let folder = templatesFolderURL else { return [] }
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        var results: [(name: String, url: URL)] = []
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "md" else { continue }
-            let name = url.deletingPathExtension().lastPathComponent
-            results.append((name: name, url: url))
-        }
-        return results.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 }
