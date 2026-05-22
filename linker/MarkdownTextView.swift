@@ -2,13 +2,152 @@ import SwiftUI
 
 private class MarkdownNSTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
+    weak var completionPanel: CompletionPanel?
+    var onCompletionConfirm: (() -> Void)?
+    var onCompletionDismiss: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.command) && event.keyCode == 36 {
+        if let panel = completionPanel, panel.isVisible {
+            switch event.keyCode {
+            case 126: // up
+                panel.moveUp()
+                return
+            case 125: // down
+                panel.moveDown()
+                return
+            case 36: // return
+                if event.modifierFlags.contains(.command) {
+                    onCommandReturn?()
+                } else {
+                    onCompletionConfirm?()
+                }
+                return
+            case 48: // tab
+                onCompletionConfirm?()
+                return
+            case 53: // escape
+                onCompletionDismiss?()
+                return
+            default:
+                break
+            }
+        } else if event.modifierFlags.contains(.command) && event.keyCode == 36 {
             onCommandReturn?()
             return
         }
         super.keyDown(with: event)
+    }
+}
+
+// MARK: - Completion Panel
+
+fileprivate class CompletionPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private let panel: NSPanel
+    private let tableView: NSTableView
+    private(set) var items: [String] = []
+    var onSelect: ((String) -> Void)?
+
+    var isVisible: Bool { panel.isVisible }
+
+    override init() {
+        panel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = true
+        panel.hasShadow = true
+        panel.backgroundColor = .windowBackgroundColor
+        panel.level = .popUpMenu
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.drawsBackground = false
+
+        tableView = NSTableView()
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.rowHeight = 22
+        tableView.backgroundColor = .clear
+        tableView.style = .plain
+
+        scrollView.documentView = tableView
+
+        super.init()
+
+        panel.contentView = scrollView
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.target = self
+        tableView.doubleAction = #selector(doubleClicked)
+    }
+
+    func show(at screenPoint: NSPoint, in parentWindow: NSWindow, items: [String]) {
+        self.items = items
+        tableView.reloadData()
+
+        let height = min(CGFloat(items.count) * 22 + 4, 200)
+        panel.setFrame(NSRect(x: screenPoint.x, y: screenPoint.y - height, width: 250, height: height), display: true)
+
+        if !items.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView.scrollRowToVisible(0)
+        }
+
+        if panel.parent == nil {
+            parentWindow.addChildWindow(panel, ordered: .above)
+        }
+        panel.orderFront(nil)
+    }
+
+    func hide() {
+        panel.parent?.removeChildWindow(panel)
+        panel.orderOut(nil)
+    }
+
+    func moveUp() {
+        guard !items.isEmpty else { return }
+        let row = max(tableView.selectedRow - 1, 0)
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+
+    func moveDown() {
+        guard !items.isEmpty else { return }
+        let row = min(tableView.selectedRow + 1, items.count - 1)
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+
+    func selectedItem() -> String? {
+        let row = tableView.selectedRow
+        guard row >= 0, row < items.count else { return nil }
+        return items[row]
+    }
+
+    @objc private func doubleClicked() {
+        guard let item = selectedItem() else { return }
+        onSelect?(item)
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let id = NSUserInterfaceItemIdentifier("CompletionCell")
+        let cell = tableView.makeView(withIdentifier: id, owner: nil) as? NSTextField ?? {
+            let tf = NSTextField(labelWithString: "")
+            tf.identifier = id
+            tf.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+            tf.lineBreakMode = .byTruncatingTail
+            return tf
+        }()
+        cell.stringValue = items[row]
+        return cell
     }
 }
 
@@ -75,8 +214,18 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 4, height: 8)
         textView.string = text
         let coordinator = context.coordinator
+        textView.completionPanel = coordinator.completionPanel
         textView.onCommandReturn = { [weak coordinator] in
             coordinator?.openLinkAtCursor(in: textView)
+        }
+        textView.onCompletionConfirm = { [weak coordinator] in
+            coordinator?.confirmCompletion(in: textView)
+        }
+        textView.onCompletionDismiss = { [weak coordinator] in
+            coordinator?.dismissCompletion()
+        }
+        coordinator.completionPanel.onSelect = { [weak coordinator] _ in
+            coordinator?.confirmCompletion(in: textView)
         }
 
         scrollView.documentView = textView
@@ -159,6 +308,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
         var dynamicRendering: Bool = true
+        fileprivate let completionPanel = CompletionPanel()
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
 
@@ -206,6 +356,7 @@ struct MarkdownTextView: NSViewRepresentable {
             text.wrappedValue = content
             onTextChange?(content)
             applyMarkdownStyling(to: textView)
+            updateCompletion(in: textView)
             isUpdating = false
         }
 
@@ -214,6 +365,9 @@ struct MarkdownTextView: NSViewRepresentable {
             isUpdating = true
             applyMarkdownStyling(to: textView)
             onCursorChange?(textView.selectedRange().location)
+            if wikiLinkQuery(in: textView) == nil {
+                completionPanel.hide()
+            }
             isUpdating = false
         }
 
@@ -385,6 +539,80 @@ struct MarkdownTextView: NSViewRepresentable {
                 lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
                 lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
             }
+        }
+
+        // MARK: - Completion
+
+        private func wikiLinkQuery(in textView: NSTextView) -> (query: String, range: NSRange)? {
+            let cursor = textView.selectedRange().location
+            let string = textView.string as NSString
+            let searchStart = max(0, cursor - 200)
+            let searchLen = cursor - searchStart
+            guard searchLen > 0 else { return nil }
+            let before = string.substring(with: NSRange(location: searchStart, length: searchLen))
+            guard let bracketPos = before.range(of: "[[", options: .backwards) else { return nil }
+            let after = before[bracketPos.upperBound...]
+            if after.contains("]]") || after.contains("\n") { return nil }
+            let query = String(after)
+            let queryStart = searchStart + before.distance(from: before.startIndex, to: bracketPos.upperBound)
+            return (query, NSRange(location: queryStart, length: cursor - queryStart))
+        }
+
+        func updateCompletion(in textView: NSTextView) {
+            guard let (query, _) = wikiLinkQuery(in: textView),
+                  let window = textView.window else {
+                completionPanel.hide()
+                return
+            }
+
+            let matches: [String]
+            if query.isEmpty {
+                matches = Array(fileNames.sorted().prefix(20))
+            } else {
+                let lowered = query.lowercased()
+                matches = fileNames
+                    .filter { $0.lowercased().contains(lowered) }
+                    .sorted()
+                    .prefix(20)
+                    .map { $0 }
+            }
+
+            guard !matches.isEmpty else {
+                completionPanel.hide()
+                return
+            }
+
+            let cursorRange = textView.selectedRange()
+            let screenRect = textView.firstRect(forCharacterRange: cursorRange, actualRange: nil)
+            completionPanel.show(
+                at: NSPoint(x: screenRect.origin.x, y: screenRect.origin.y),
+                in: window,
+                items: matches
+            )
+        }
+
+        func confirmCompletion(in textView: NSTextView) {
+            guard let selected = completionPanel.selectedItem(),
+                  let (_, queryRange) = wikiLinkQuery(in: textView) else {
+                completionPanel.hide()
+                return
+            }
+
+            let string = textView.string as NSString
+            let afterQuery = NSMaxRange(queryRange)
+            let hasClosing = afterQuery + 2 <= string.length
+                && string.substring(with: NSRange(location: afterQuery, length: 2)) == "]]"
+
+            let replacement = selected + (hasClosing ? "" : "]]")
+            if textView.shouldChangeText(in: queryRange, replacementString: replacement) {
+                textView.replaceCharacters(in: queryRange, with: replacement)
+                textView.didChangeText()
+            }
+            completionPanel.hide()
+        }
+
+        func dismissCompletion() {
+            completionPanel.hide()
         }
     }
 }
