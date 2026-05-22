@@ -187,6 +187,17 @@ struct linkerApp: App {
                 .keyboardShortcut("l")
                 .disabled(toggleReferencesAction == nil)
             }
+            CommandGroup(after: .toolbar) {
+                Button("Increase Text Size") {
+                    appState.fontSize = min(appState.fontSize + 1, 48)
+                }
+                .keyboardShortcut("=", modifiers: .command)
+
+                Button("Decrease Text Size") {
+                    appState.fontSize = max(appState.fontSize - 1, 8)
+                }
+                .keyboardShortcut("-", modifiers: .command)
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
                     saveAction?()
