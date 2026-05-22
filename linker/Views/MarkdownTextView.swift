@@ -5,6 +5,14 @@ class MarkdownNSTextView: NSTextView {
     weak var completionPanel: CompletionPanel?
     var onCompletionConfirm: (() -> Void)?
     var onCompletionDismiss: (() -> Void)?
+    var customTopInset: CGFloat?
+
+    override var textContainerOrigin: NSPoint {
+        if let top = customTopInset {
+            return NSPoint(x: textContainerInset.width, y: top)
+        }
+        return super.textContainerOrigin
+    }
 
     override func keyDown(with event: NSEvent) {
         if let panel = completionPanel, panel.isVisible {
@@ -72,6 +80,8 @@ struct MarkdownTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = !wordWrap
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         let contentSize = scrollView.contentSize
 
@@ -105,7 +115,7 @@ struct MarkdownTextView: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
-        let titleFontSize = fontSize * 1.4
+        let titleFontSize = fontSize * 2.5
         let titleFont = NSFont.systemFont(ofSize: titleFontSize, weight: .semibold)
         let titleFieldY: CGFloat = 44
         let titleFieldHeight = ceil(titleFont.boundingRectForFont.height) + 8
@@ -129,7 +139,9 @@ struct MarkdownTextView: NSViewRepresentable {
         errorLabel.autoresizingMask = [.width]
 
         let titleInset = titleFieldY + titleFieldHeight + (titleError != nil ? 22 : 0) + 16
-        textView.textContainerInset = NSSize(width: 80, height: titleInset)
+        let bottomPadding = max(400, contentSize.height / 2)
+        textView.customTopInset = titleInset
+        textView.textContainerInset = NSSize(width: 80, height: titleInset + bottomPadding)
 
         textView.addSubview(titleField)
         textView.addSubview(errorLabel)
@@ -239,7 +251,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textView.needsLayout = true
         }
 
-        let titleFont = NSFont.systemFont(ofSize: fontSize * 1.4, weight: .semibold)
+        let titleFont = NSFont.systemFont(ofSize: fontSize * 2.5, weight: .semibold)
         let tfHeight = ceil(titleFont.boundingRectForFont.height) + 8
         if let titleField = context.coordinator.titleField {
             if titleField.stringValue != titleText {
@@ -260,8 +272,11 @@ struct MarkdownTextView: NSViewRepresentable {
             }
         }
         let titleInset: CGFloat = 44 + tfHeight + (titleError != nil ? 22 : 0) + 16
-        if abs(textView.textContainerInset.height - titleInset) > 0.5 {
-            textView.textContainerInset = NSSize(width: 80, height: titleInset)
+        let bottomPadding = scrollView.contentSize.height / 3
+        let totalInset = titleInset + bottomPadding
+        (textView as? MarkdownNSTextView)?.customTopInset = titleInset
+        if abs(textView.textContainerInset.height - totalInset) > 0.5 {
+            textView.textContainerInset = NSSize(width: 80, height: totalInset)
             textView.needsLayout = true
         }
 
