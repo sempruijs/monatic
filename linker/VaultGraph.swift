@@ -16,8 +16,10 @@ class VaultGraph {
     private(set) var files: [FileEntry] = []
     private(set) var fileNameSet: Set<String> = []
     private(set) var references: [String: [Reference]] = [:]
+    private(set) var recentFiles: [FileEntry] = []
     private var filesByName: [String: FileEntry] = [:]
     private var indexedModDates: [String: Date] = [:]
+    private static let maxRecents = 10
 
     func build(from vaultURL: URL) {
         filesByName.removeAll()
@@ -67,10 +69,21 @@ class VaultGraph {
         }
     }
 
+    func recordVisit(_ url: URL) {
+        let name = url.deletingPathExtension().lastPathComponent
+        recentFiles.removeAll { $0.name == name }
+        if let entry = filesByName[name] {
+            recentFiles.insert(entry, at: 0)
+        }
+        if recentFiles.count > Self.maxRecents {
+            recentFiles.removeLast(recentFiles.count - Self.maxRecents)
+        }
+    }
+
     func search(_ query: String, limit: Int = 20) -> [FileEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
         if trimmed.isEmpty {
-            return Array(files.prefix(limit))
+            return recentFiles.isEmpty ? Array(files.prefix(limit)) : recentFiles
         }
         var results: [FileEntry] = []
         for file in files {
