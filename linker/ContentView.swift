@@ -232,7 +232,7 @@ struct ContentView: View {
     private func openLinkedFile(_ name: String) {
         if let url = appState.graph.url(for: name) {
             openFile(url)
-        } else {
+        } else if !name.contains(".") {
             guard let vault = appState.vaultURL else { return }
             let url = vault.appendingPathComponent("\(name).md")
             do {

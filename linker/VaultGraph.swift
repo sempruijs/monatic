@@ -31,15 +31,20 @@ class VaultGraph {
     private(set) var references: [String: [Reference]] = [:]
     private(set) var recentFiles: [FileEntry] = []
     private var markdownByName: [String: FileEntry] = [:]
-    private var allFilesByName: [String: FileEntry] = [:]
+    private var allFilesByDisplayName: [String: FileEntry] = [:]
     private var indexedModDates: [String: Date] = [:]
     private var searchIndex: [IndexedName] = []
     private static let maxRecents = 10
     private static let markdownExtensions: Set<String> = ["md", "markdown", "txt"]
 
+    private static func displayName(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        return markdownExtensions.contains(ext) ? url.deletingPathExtension().lastPathComponent : url.lastPathComponent
+    }
+
     func build(from vaultURL: URL) {
         markdownByName.removeAll()
-        allFilesByName.removeAll()
+        allFilesByDisplayName.removeAll()
 
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
@@ -51,9 +56,9 @@ class VaultGraph {
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
             let ext = url.pathExtension.lowercased()
-            let displayName = url.lastPathComponent
-            let entry = FileEntry(name: displayName, url: url)
-            allFilesByName[displayName] = entry
+            let display = Self.displayName(for: url)
+            let entry = FileEntry(name: display, url: url)
+            allFilesByDisplayName[display] = entry
 
             if Self.markdownExtensions.contains(ext) {
                 let baseName = url.deletingPathExtension().lastPathComponent
@@ -61,10 +66,10 @@ class VaultGraph {
             }
         }
 
-        files = allFilesByName.values.sorted {
+        files = allFilesByDisplayName.values.sorted {
             $0.name.localizedCompare($1.name) == .orderedAscending
         }
-        fileNameSet = Set(markdownByName.keys)
+        fileNameSet = Set(allFilesByDisplayName.keys)
         rebuildSearchIndex()
         buildReferences()
     }
@@ -94,9 +99,9 @@ class VaultGraph {
     }
 
     func recordVisit(_ url: URL) {
-        let displayName = url.lastPathComponent
-        recentFiles.removeAll { $0.name == displayName }
-        if let entry = allFilesByName[displayName] {
+        let display = Self.displayName(for: url)
+        recentFiles.removeAll { $0.name == display }
+        if let entry = allFilesByDisplayName[display] {
             recentFiles.insert(entry, at: 0)
         }
         if recentFiles.count > Self.maxRecents {
@@ -173,7 +178,7 @@ class VaultGraph {
     }
 
     func url(for name: String) -> URL? {
-        markdownByName[name]?.url
+        allFilesByDisplayName[name]?.url
     }
 
     func outgoingReferences(for filename: String) -> [Reference] {
@@ -191,19 +196,23 @@ class VaultGraph {
     }
 
     func renameFile(oldName: String, newName: String, newURL: URL) {
-        let oldDisplayName = oldName + ".md"
-        let newDisplayName = newName + ".md"
+        let oldDisplay = oldName
+        let newDisplay = Self.displayName(for: newURL)
+        let ext = newURL.pathExtension.lowercased()
+        let isMarkdown = Self.markdownExtensions.contains(ext)
 
         markdownByName.removeValue(forKey: oldName)
-        allFilesByName.removeValue(forKey: oldDisplayName)
+        allFilesByDisplayName.removeValue(forKey: oldDisplay)
         fileNameSet.remove(oldName)
-        files.removeAll { $0.name == oldDisplayName }
+        files.removeAll { $0.name == oldDisplay }
 
-        let entry = FileEntry(name: newDisplayName, url: newURL)
-        markdownByName[newName] = entry
-        allFilesByName[newDisplayName] = entry
-        fileNameSet.insert(newName)
-        let idx = files.firstIndex { newDisplayName.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
+        let entry = FileEntry(name: newDisplay, url: newURL)
+        allFilesByDisplayName[newDisplay] = entry
+        fileNameSet.insert(newDisplay)
+        if isMarkdown {
+            markdownByName[newName] = entry
+        }
+        let idx = files.firstIndex { newDisplay.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
         files.insert(entry, at: idx)
 
         if let refs = references.removeValue(forKey: oldName) {
@@ -212,34 +221,34 @@ class VaultGraph {
         indexedModDates.removeValue(forKey: oldName)
         indexedModDates[newName] = (try? newURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
 
-        if let i = recentFiles.firstIndex(where: { $0.name == oldDisplayName }) {
+        if let i = recentFiles.firstIndex(where: { $0.name == oldDisplay }) {
             recentFiles[i] = entry
         }
 
-        searchIndex.removeAll { $0.name == oldDisplayName }
+        searchIndex.removeAll { $0.name == oldDisplay }
         searchIndex.append(IndexedName(
-            name: newDisplayName,
-            scalars: Array(newDisplayName.lowercased().unicodeScalars.map(\.value)),
+            name: newDisplay,
+            scalars: Array(newDisplay.lowercased().unicodeScalars.map(\.value)),
             url: newURL
         ))
     }
 
     func addFile(name: String, url: URL) {
-        let displayName = url.lastPathComponent
-        let entry = FileEntry(name: displayName, url: url)
+        let display = Self.displayName(for: url)
+        let entry = FileEntry(name: display, url: url)
         let ext = url.pathExtension.lowercased()
 
-        allFilesByName[displayName] = entry
+        allFilesByDisplayName[display] = entry
+        fileNameSet.insert(display)
         if Self.markdownExtensions.contains(ext) {
             markdownByName[name] = entry
-            fileNameSet.insert(name)
         }
 
-        let idx = files.firstIndex { displayName.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
+        let idx = files.firstIndex { display.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
         files.insert(entry, at: idx)
         searchIndex.append(IndexedName(
-            name: displayName,
-            scalars: Array(displayName.lowercased().unicodeScalars.map(\.value)),
+            name: display,
+            scalars: Array(display.lowercased().unicodeScalars.map(\.value)),
             url: url
         ))
 
