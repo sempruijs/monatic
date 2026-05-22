@@ -40,6 +40,9 @@ struct ContentView: View {
             .focusedSceneValue(\.closeTabAction, closeTabActionBinding)
             .focusedSceneValue(\.goBackAction, goBackActionBinding)
             .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
+            .onChange(of: showQuickOpen) { _, isOpen in
+                if !isOpen { selectedTab?.needsFocus = true }
+            }
     }
 
     private var mainContent: some View {
@@ -314,6 +317,7 @@ struct TabEditorView: View {
             fontSize: appState.fontSize,
             wordWrap: appState.wordWrap,
             cursorPositionToRestore: $tab.cursorPositionToRestore,
+            needsFocus: $tab.needsFocus,
             onOpenLink: onOpenLink,
             onCursorChange: { tab.history.latestCursorPosition = $0 },
             onTextChange: { newContent in

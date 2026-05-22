@@ -8,6 +8,7 @@ class EditorTab: Identifiable {
     var fileContent: String = ""
     var history = NavigationHistory()
     var cursorPositionToRestore: Int?
+    var needsFocus: Bool = false
     var showReferences: Bool = false
     @ObservationIgnored var indexWorkItem: DispatchWorkItem?
 
