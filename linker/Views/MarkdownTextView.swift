@@ -51,9 +51,14 @@ struct MarkdownTextView: NSViewRepresentable {
     var onOpenLink: (String) -> Void
     var onCursorChange: ((Int) -> Void)?
     var onTextChange: ((String) -> Void)?
+    @Binding var titleText: String
+    var titleError: String?
+    var onTitleCommit: (() -> Void)?
+    var onTitleFocusLost: (() -> Void)?
+    @Binding var needsTitleFocus: Bool
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onCursorChange: onCursorChange, onTextChange: onTextChange)
+        let coordinator = Coordinator(text: $text, titleText: $titleText, onOpenLink: onOpenLink, onCursorChange: onCursorChange, onTextChange: onTextChange, onTitleCommit: onTitleCommit, onTitleFocusLost: onTitleFocusLost)
         coordinator.fontSize = fontSize
         coordinator.wordWrap = wordWrap
         coordinator.dynamicRendering = dynamicRendering
@@ -100,7 +105,37 @@ struct MarkdownTextView: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
-        textView.textContainerInset = NSSize(width: 4, height: 8)
+        let titleFontSize = fontSize * 1.4
+        let titleFont = NSFont.systemFont(ofSize: titleFontSize, weight: .semibold)
+        let titleFieldY: CGFloat = 44
+        let titleFieldHeight = ceil(titleFont.boundingRectForFont.height) + 8
+
+        let titleField = NSTextField()
+        titleField.stringValue = titleText
+        titleField.isBordered = false
+        titleField.drawsBackground = false
+        titleField.font = titleFont
+        titleField.placeholderString = "Filename"
+        titleField.focusRingType = .none
+        titleField.delegate = context.coordinator
+        titleField.frame = NSRect(x: 84, y: titleFieldY, width: max(100, contentSize.width - 168), height: titleFieldHeight)
+        titleField.autoresizingMask = [.width]
+
+        let errorLabel = NSTextField(labelWithString: titleError ?? "")
+        errorLabel.font = NSFont.systemFont(ofSize: 11)
+        errorLabel.textColor = .systemRed
+        errorLabel.isHidden = titleError == nil
+        errorLabel.frame = NSRect(x: 84, y: titleFieldY + titleFieldHeight + 2, width: max(100, contentSize.width - 168), height: 16)
+        errorLabel.autoresizingMask = [.width]
+
+        let titleInset = titleFieldY + titleFieldHeight + (titleError != nil ? 22 : 0) + 16
+        textView.textContainerInset = NSSize(width: 80, height: titleInset)
+
+        textView.addSubview(titleField)
+        textView.addSubview(errorLabel)
+        context.coordinator.titleField = titleField
+        context.coordinator.titleErrorLabel = errorLabel
+
         textView.string = text
         let coordinator = context.coordinator
         textView.completionPanel = coordinator.completionPanel
@@ -137,11 +172,24 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onTextChange = onTextChange
         context.coordinator.fileNames = fileNames
+        context.coordinator.titleText = $titleText
+        context.coordinator.onTitleCommit = onTitleCommit
+        context.coordinator.onTitleFocusLost = onTitleFocusLost
 
         if needsFocus {
             DispatchQueue.main.async {
                 textView.window?.makeFirstResponder(textView)
                 self.needsFocus = false
+            }
+        }
+
+        if needsTitleFocus {
+            DispatchQueue.main.async {
+                if let titleField = context.coordinator.titleField {
+                    textView.window?.makeFirstResponder(titleField)
+                    titleField.selectText(nil)
+                }
+                self.needsTitleFocus = false
             }
         }
 
@@ -191,6 +239,32 @@ struct MarkdownTextView: NSViewRepresentable {
             textView.needsLayout = true
         }
 
+        let titleFont = NSFont.systemFont(ofSize: fontSize * 1.4, weight: .semibold)
+        let tfHeight = ceil(titleFont.boundingRectForFont.height) + 8
+        if let titleField = context.coordinator.titleField {
+            if titleField.stringValue != titleText {
+                titleField.stringValue = titleText
+            }
+            if fontChanged {
+                titleField.font = titleFont
+                titleField.frame.size.height = tfHeight
+                context.coordinator.titleErrorLabel?.frame.origin.y = 44 + tfHeight + 2
+            }
+        }
+        if let errorLabel = context.coordinator.titleErrorLabel {
+            if let error = titleError {
+                errorLabel.stringValue = error
+                errorLabel.isHidden = false
+            } else {
+                errorLabel.isHidden = true
+            }
+        }
+        let titleInset: CGFloat = 44 + tfHeight + (titleError != nil ? 22 : 0) + 16
+        if abs(textView.textContainerInset.height - titleInset) > 0.5 {
+            textView.textContainerInset = NSSize(width: 80, height: titleInset)
+            textView.needsLayout = true
+        }
+
         if textView.string != text {
             textView.string = text
             context.coordinator.applyMarkdownStyling(to: textView)
@@ -199,11 +273,16 @@ struct MarkdownTextView: NSViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate, NSTextFieldDelegate {
         var text: Binding<String>
+        var titleText: Binding<String>
         var onOpenLink: (String) -> Void
         var onCursorChange: ((Int) -> Void)?
         var onTextChange: ((String) -> Void)?
+        var onTitleCommit: (() -> Void)?
+        var onTitleFocusLost: (() -> Void)?
+        var titleField: NSTextField?
+        var titleErrorLabel: NSTextField?
         var fileNames: Set<String> = []
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
@@ -212,11 +291,14 @@ struct MarkdownTextView: NSViewRepresentable {
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
 
-        init(text: Binding<String>, onOpenLink: @escaping (String) -> Void, onCursorChange: ((Int) -> Void)?, onTextChange: ((String) -> Void)?) {
+        init(text: Binding<String>, titleText: Binding<String>, onOpenLink: @escaping (String) -> Void, onCursorChange: ((Int) -> Void)?, onTextChange: ((String) -> Void)?, onTitleCommit: (() -> Void)?, onTitleFocusLost: (() -> Void)?) {
             self.text = text
+            self.titleText = titleText
             self.onOpenLink = onOpenLink
             self.onCursorChange = onCursorChange
             self.onTextChange = onTextChange
+            self.onTitleCommit = onTitleCommit
+            self.onTitleFocusLost = onTitleFocusLost
         }
 
         // MARK: - NSLayoutManagerDelegate
@@ -513,6 +595,27 @@ struct MarkdownTextView: NSViewRepresentable {
 
         func dismissCompletion() {
             completionPanel.hide()
+        }
+
+        // MARK: - NSTextFieldDelegate (title field)
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField, field === titleField else { return }
+            titleText.wrappedValue = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField, field === titleField else { return }
+            onTitleFocusLost?()
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard control === titleField else { return false }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                onTitleCommit?()
+                return true
+            }
+            return false
         }
     }
 }
