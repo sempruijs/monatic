@@ -5,10 +5,9 @@ struct ReferencesDragHandle: View {
     @State private var dragStartWidth: CGFloat?
 
     var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(width: 6)
-            .overlay(Divider(), alignment: .leading)
+        Color.clear
+            .frame(width: 12)
+            .overlay(Divider(), alignment: .center)
             .contentShape(Rectangle())
             .cursor(.resizeLeftRight)
             .gesture(
