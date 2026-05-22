@@ -49,6 +49,7 @@ struct ContentView: View {
     @State private var showVaultPicker: Bool = false
     @State private var history = NavigationHistory()
     @State private var cursorPositionToRestore: Int?
+    @State private var showReferences: Bool = false
 
     private var currentNoteName: String? {
         openFileURL?.deletingPathExtension().lastPathComponent
@@ -109,21 +110,36 @@ struct ContentView: View {
     private var editorView: some View {
         Group {
             if openFileURL != nil {
-                MarkdownTextView(
-                    text: $fileContent,
-                    fileNames: appState.graph.fileNameSet,
-                    fontSize: appState.fontSize,
-                    wordWrap: appState.wordWrap,
-                    cursorPositionToRestore: $cursorPositionToRestore,
-                    onOpenLink: { openLinkedFile($0) },
-                    onCursorChange: { history.latestCursorPosition = $0 },
-                    onTextChange: { newContent in
-                        fileContent = newContent
-                        if appState.autoSave, let url = openFileURL {
-                            try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                HStack(spacing: 0) {
+                    MarkdownTextView(
+                        text: $fileContent,
+                        fileNames: appState.graph.fileNameSet,
+                        fontSize: appState.fontSize,
+                        wordWrap: appState.wordWrap,
+                        cursorPositionToRestore: $cursorPositionToRestore,
+                        onOpenLink: { openLinkedFile($0) },
+                        onCursorChange: { history.latestCursorPosition = $0 },
+                        onTextChange: { newContent in
+                            fileContent = newContent
+                            if appState.autoSave, let url = openFileURL {
+                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                                if let name = currentNoteName {
+                                    appState.graph.indexFile(name: name, url: url)
+                                }
+                            }
                         }
+                    )
+
+                    if showReferences, let name = currentNoteName {
+                        Divider()
+                        ReferencesPanel(
+                            filename: name,
+                            graph: appState.graph,
+                            onOpenFile: { openLinkedFile($0) }
+                        )
+                        .frame(width: 250)
                     }
-                )
+                }
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
                         Button(action: goBack) {
@@ -135,6 +151,13 @@ struct ContentView: View {
                             Label("Forward", systemImage: "chevron.right")
                         }
                         .disabled(!history.canGoForward)
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showReferences.toggle()
+                        } label: {
+                            Label("References", systemImage: "link")
+                        }
                     }
                 }
             } else {
@@ -192,6 +215,9 @@ struct ContentView: View {
     private func saveCurrentFile() {
         guard let url = openFileURL else { return }
         try? fileContent.write(to: url, atomically: true, encoding: .utf8)
+        if let name = currentNoteName {
+            appState.graph.indexFile(name: name, url: url)
+        }
     }
 
     private func createNewFile() {
@@ -213,6 +239,81 @@ struct ContentView: View {
         appState.graph.addFile(name: actualName, url: url)
         fileContent = ""
         openFileURL = url
+    }
+}
+
+struct ReferencesPanel: View {
+    let filename: String
+    let graph: VaultGraph
+    var onOpenFile: (String) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                referenceSection(
+                    title: "Outgoing",
+                    items: graph.outgoingReferences(for: filename).map { ref in
+                        ReferenceItem(name: ref.filename, line: ref.line, column: ref.column, exists: graph.fileNameSet.contains(ref.filename))
+                    }
+                )
+
+                referenceSection(
+                    title: "Incoming",
+                    items: graph.incomingReferences(for: filename).map { item in
+                        ReferenceItem(name: item.source, line: item.reference.line, column: item.reference.column, exists: true)
+                    }
+                )
+
+                Spacer()
+            }
+            .padding(12)
+        }
+    }
+
+    private struct ReferenceItem {
+        let name: String
+        let line: Int
+        let column: Int
+        let exists: Bool
+    }
+
+    @ViewBuilder
+    private func referenceSection(title: String, items: [ReferenceItem]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            if items.isEmpty {
+                Text("None")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    Button {
+                        onOpenFile(item.name)
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Text(item.name)
+                                .font(.system(size: 12))
+                                .foregroundStyle(item.exists ? .primary : .secondary)
+                            Spacer()
+                            Text("\(item.line):\(item.column)")
+                                .font(.system(size: 10).monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 }
 
