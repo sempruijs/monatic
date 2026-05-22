@@ -36,6 +36,10 @@ private struct DailyNoteActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct ToggleReferencesActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct ShowTemplatePickerKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -86,6 +90,11 @@ extension FocusedValues {
         set { self[DailyNoteActionKey.self] = newValue }
     }
 
+    var toggleReferencesAction: (() -> Void)? {
+        get { self[ToggleReferencesActionKey.self] }
+        set { self[ToggleReferencesActionKey.self] = newValue }
+    }
+
     var showTemplatePicker: Binding<Bool>? {
         get { self[ShowTemplatePickerKey.self] }
         set { self[ShowTemplatePickerKey.self] = newValue }
@@ -104,6 +113,7 @@ struct linkerApp: App {
     @FocusedValue(\.closeTabAction) var closeTabAction
     @FocusedValue(\.deleteFileAction) var deleteFileAction
     @FocusedValue(\.dailyNoteAction) var dailyNoteAction
+    @FocusedValue(\.toggleReferencesAction) var toggleReferencesAction
     @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
 
     var body: some Scene {
@@ -168,6 +178,14 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(goForwardAction == nil)
+
+                Divider()
+
+                Button("Toggle References") {
+                    toggleReferencesAction?()
+                }
+                .keyboardShortcut("l")
+                .disabled(toggleReferencesAction == nil)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {

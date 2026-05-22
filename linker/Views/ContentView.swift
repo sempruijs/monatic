@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var showVaultPicker: Bool = false
     @State private var showDeleteConfirmation: Bool = false
     @State private var showTemplatePicker: Bool = false
+    @State private var referencesPanelWidth: CGFloat = 250
 
     private var selectedTab: EditorTab? {
         tabs.first { $0.id == selectedTabID } ?? tabs.first
@@ -34,6 +35,11 @@ struct ContentView: View {
         selectedTab?.openFileURL != nil ? { showDeleteConfirmation = true } : nil
     }
 
+    private var toggleReferencesBinding: (() -> Void)? {
+        guard let tab = selectedTab, tab.contentType == .markdown else { return nil }
+        return { tab.showReferences.toggle() }
+    }
+
     var body: some View {
         mainContent
             .frame(minWidth: 600, minHeight: 400)
@@ -48,6 +54,7 @@ struct ContentView: View {
             .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
             .focusedSceneValue(\.deleteFileAction, deleteFileActionBinding)
             .focusedSceneValue(\.dailyNoteAction, openDailyNote)
+            .focusedSceneValue(\.toggleReferencesAction, toggleReferencesBinding)
             .focusedSceneValue(\.showTemplatePicker, $showTemplatePicker)
             .onChange(of: showQuickOpen) { _, isOpen in
                 if !isOpen { selectedTab?.needsFocus = true }
@@ -181,13 +188,14 @@ struct ContentView: View {
                     TabEditorView(tab: tab, appState: appState, onOpenLink: openLinkedFile)
 
                     if tab.showReferences, tab.contentType == .markdown {
-                        Divider()
+                        ReferencesDragHandle(width: $referencesPanelWidth)
                         ReferencesPanel(
                             outgoing: outgoingItems(for: baseName),
                             incoming: incomingItems(for: baseName),
+                            fontSize: appState.fontSize,
                             onOpenFile: { openLinkedFile($0) }
                         )
-                        .frame(width: 250)
+                        .frame(width: referencesPanelWidth)
                     }
                 }
                 .id(tab.id)
