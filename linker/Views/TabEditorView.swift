@@ -23,6 +23,14 @@ struct TabEditorView: View {
                 if let url = tab.openFileURL {
                     PDFViewer(url: url)
                 }
+            case .image:
+                if let url = tab.openFileURL {
+                    ImageViewer(url: url)
+                }
+            case .audio:
+                if let url = tab.openFileURL {
+                    AudioPlayer(url: url)
+                }
             case .unsupported:
                 Text("Unsupported file type")
                     .foregroundStyle(.secondary)

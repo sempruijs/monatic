@@ -4,17 +4,25 @@ import Foundation
 enum TabContentType {
     case markdown
     case pdf
+    case image
+    case audio
     case unsupported
 
     static func from(url: URL) -> TabContentType {
         switch url.pathExtension.lowercased() {
         case "md", "markdown", "txt": return .markdown
         case "pdf": return .pdf
+        case "png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "heic": return .image
+        case "mp3", "wav", "m4a", "aac", "aiff", "flac": return .audio
         default: return .unsupported
         }
     }
 
-    static let supportedExtensions: Set<String> = ["md", "markdown", "txt", "pdf"]
+    static let supportedExtensions: Set<String> = [
+        "md", "markdown", "txt", "pdf",
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "heic",
+        "mp3", "wav", "m4a", "aac", "aiff", "flac",
+    ]
 }
 
 @Observable
