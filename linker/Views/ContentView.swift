@@ -9,7 +9,7 @@ struct ContentView: View {
     @State private var showVaultPicker: Bool = false
     @State private var showDeleteConfirmation: Bool = false
     @State private var showTemplatePicker: Bool = false
-    @State private var referencesPanelWidth: CGFloat = 250
+    @State private var referencesPanelWidth: CGFloat = 500
 
     private var selectedTab: EditorTab? {
         tabs.first { $0.id == selectedTabID } ?? tabs.first
@@ -189,11 +189,20 @@ struct ContentView: View {
 
                     if tab.showReferences, tab.contentType == .markdown {
                         ReferencesDragHandle(width: $referencesPanelWidth)
-                        ReferencesPanel(
-                            outgoing: outgoingItems(for: baseName),
-                            incoming: incomingItems(for: baseName),
+                        MarkdownTextView(
+                            text: .constant(referencesMarkdown(for: baseName)),
+                            fileNames: appState.graph.fileNameSet,
                             fontSize: appState.fontSize,
-                            onOpenFile: { openLinkedFile($0) }
+                            wordWrap: appState.wordWrap,
+                            dynamicRendering: appState.dynamicRendering,
+                            cursorPositionToRestore: .constant(nil),
+                            needsFocus: .constant(false),
+                            pendingInsert: .constant(nil),
+                            onOpenLink: { openLinkedFile($0) },
+                            titleText: .constant("References"),
+                            needsTitleFocus: .constant(false),
+                            isEditable: false,
+                            contentPadding: 16
                         )
                         .frame(width: referencesPanelWidth)
                     }
@@ -269,16 +278,26 @@ struct ContentView: View {
 
     // MARK: - References
 
-    private func outgoingItems(for filename: String) -> [ReferenceItem] {
-        appState.graph.outgoingReferences(for: filename).map {
-            ReferenceItem(name: $0.filename, line: $0.line, column: $0.column, exists: appState.graph.fileNameSet.contains($0.filename))
+    private func referencesMarkdown(for filename: String) -> String {
+        var md = "### Incoming\n"
+        let incoming = Array(Set(appState.graph.incomingReferences(for: filename).map(\.source))).sorted()
+        if incoming.isEmpty {
+            md += "None\n"
+        } else {
+            for name in incoming {
+                md += "[[\(name)]]\n"
+            }
         }
-    }
-
-    private func incomingItems(for filename: String) -> [ReferenceItem] {
-        appState.graph.incomingReferences(for: filename).map {
-            ReferenceItem(name: $0.source, line: $0.reference.line, column: $0.reference.column, exists: true)
+        md += "\n### Outgoing\n"
+        let outgoing = Array(Set(appState.graph.outgoingReferences(for: filename).map(\.filename))).sorted()
+        if outgoing.isEmpty {
+            md += "None\n"
+        } else {
+            for name in outgoing {
+                md += "[[\(name)]]\n"
+            }
         }
+        return md
     }
 
     // MARK: - File Actions
