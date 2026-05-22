@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var showDeleteConfirmation: Bool = false
     @State private var showTemplatePicker: Bool = false
     @State private var referencesPanelWidth: CGFloat = 500
+    @State private var referencesPanelNeedsFocus: Bool = false
 
     private var selectedTab: EditorTab? {
         tabs.first { $0.id == selectedTabID } ?? tabs.first
@@ -37,7 +38,12 @@ struct ContentView: View {
 
     private var toggleReferencesBinding: (() -> Void)? {
         guard let tab = selectedTab, tab.contentType == .markdown else { return nil }
-        return { tab.showReferences.toggle() }
+        return {
+            tab.showReferences.toggle()
+            if tab.showReferences {
+                referencesPanelNeedsFocus = true
+            }
+        }
     }
 
     var body: some View {
@@ -196,7 +202,7 @@ struct ContentView: View {
                             wordWrap: appState.wordWrap,
                             dynamicRendering: appState.dynamicRendering,
                             cursorPositionToRestore: .constant(nil),
-                            needsFocus: .constant(false),
+                            needsFocus: $referencesPanelNeedsFocus,
                             pendingInsert: .constant(nil),
                             onOpenLink: { openLinkedFile($0) },
                             titleText: .constant("References"),
@@ -239,6 +245,9 @@ struct ContentView: View {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 tab.showReferences.toggle()
+                                if tab.showReferences {
+                                    referencesPanelNeedsFocus = true
+                                }
                             } label: {
                                 Label("References", systemImage: "link")
                             }
