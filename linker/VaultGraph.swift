@@ -248,6 +248,19 @@ class VaultGraph {
         return result.sorted { $0.source.localizedCompare($1.source) == .orderedAscending }
     }
 
+    func removeFile(url: URL) {
+        let display = Self.displayName(for: url)
+        let baseName = url.deletingPathExtension().lastPathComponent
+        allFilesByDisplayName.removeValue(forKey: display)
+        fileNameSet.remove(display)
+        files.removeAll { $0.name == display }
+        markdownByName.removeValue(forKey: baseName)
+        references.removeValue(forKey: baseName)
+        indexedModDates.removeValue(forKey: baseName)
+        recentFiles.removeAll { $0.name == display }
+        searchIndex.removeAll { $0.name == display }
+    }
+
     func renameFile(oldName: String, newName: String, newURL: URL) {
         let oldDisplay = oldName
         let newDisplay = Self.displayName(for: newURL)
