@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var selectedTabID: UUID?
     @State private var showQuickOpen: Bool = false
     @State private var showVaultPicker: Bool = false
+    @State private var showDeleteConfirmation: Bool = false
 
     private var selectedTab: EditorTab? {
         tabs.first { $0.id == selectedTabID } ?? tabs.first
@@ -29,6 +30,10 @@ struct ContentView: View {
         tabs.count > 1 ? { closeCurrentTab() } : nil
     }
 
+    private var deleteFileActionBinding: (() -> Void)? {
+        selectedTab?.openFileURL != nil ? { showDeleteConfirmation = true } : nil
+    }
+
     var body: some View {
         mainContent
             .frame(minWidth: 600, minHeight: 400)
@@ -41,8 +46,19 @@ struct ContentView: View {
             .focusedSceneValue(\.closeTabAction, closeTabActionBinding)
             .focusedSceneValue(\.goBackAction, goBackActionBinding)
             .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
+            .focusedSceneValue(\.deleteFileAction, deleteFileActionBinding)
             .onChange(of: showQuickOpen) { _, isOpen in
                 if !isOpen { selectedTab?.needsFocus = true }
+            }
+            .alert(
+                "Are you sure you want to delete: \(selectedTab?.openFileURL?.deletingPathExtension().lastPathComponent ?? "")?",
+                isPresented: $showDeleteConfirmation
+            ) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    deleteCurrentFile()
+                }
+                .keyboardShortcut(.defaultAction)
             }
     }
 
@@ -294,6 +310,21 @@ struct ContentView: View {
         try? tab.fileContent.write(to: url, atomically: true, encoding: .utf8)
         let name = url.deletingPathExtension().lastPathComponent
         appState.graph.indexFile(name: name, url: url)
+    }
+
+    private func deleteCurrentFile() {
+        guard let tab = selectedTab, let url = tab.openFileURL else { return }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            return
+        }
+        appState.graph.removeFile(url: url)
+        tab.openFileURL = nil
+        tab.fileContent = ""
+        if let next = appState.graph.files.first {
+            openFile(next.url)
+        }
     }
 
     private func createNewFile() {

@@ -28,6 +28,10 @@ private struct CloseTabActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct DeleteFileActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -63,6 +67,11 @@ extension FocusedValues {
         get { self[CloseTabActionKey.self] }
         set { self[CloseTabActionKey.self] = newValue }
     }
+
+    var deleteFileAction: (() -> Void)? {
+        get { self[DeleteFileActionKey.self] }
+        set { self[DeleteFileActionKey.self] = newValue }
+    }
 }
 
 @main
@@ -75,6 +84,7 @@ struct linkerApp: App {
     @FocusedValue(\.goForwardAction) var goForwardAction
     @FocusedValue(\.newTabAction) var newTabAction
     @FocusedValue(\.closeTabAction) var closeTabAction
+    @FocusedValue(\.deleteFileAction) var deleteFileAction
 
     var body: some Scene {
         WindowGroup {
@@ -133,6 +143,14 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("s")
                 .disabled(saveAction == nil)
+
+                Divider()
+
+                Button("Delete File…") {
+                    deleteFileAction?()
+                }
+                .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                .disabled(deleteFileAction == nil)
             }
         }
 
