@@ -260,6 +260,21 @@ class VaultGraph {
         return result.sorted { $0.source.localizedCompare($1.source) == .orderedAscending }
     }
 
+    func fileExists(displayName: String) -> Bool {
+        allFilesByDisplayName[displayName] != nil
+    }
+
+    func updateReferencesInFiles(oldName: String, newName: String) {
+        let incoming = incomingReferences(for: oldName)
+        for (source, _) in incoming {
+            guard let entry = markdownByName[source] else { continue }
+            guard var content = try? String(contentsOf: entry.url, encoding: .utf8) else { continue }
+            content = content.replacingOccurrences(of: "[[\(oldName)]]", with: "[[\(newName)]]")
+            try? content.write(to: entry.url, atomically: true, encoding: .utf8)
+            parseReferences(name: source, url: entry.url)
+        }
+    }
+
     func removeFile(url: URL) {
         let display = Self.displayName(for: url)
         let baseName = url.deletingPathExtension().lastPathComponent

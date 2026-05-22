@@ -370,7 +370,13 @@ struct TabEditorView: View {
     let appState: AppState
     var onOpenLink: (String) -> Void
     @State private var editingName: String = ""
+    @State private var nameError: String?
+    @State private var pendingRename: (oldName: String, newName: String, oldURL: URL, newURL: URL)?
+    @State private var showUpdateReferencesAlert: Bool = false
+    @State private var referenceCount: Int = 0
     @FocusState private var nameFieldFocused: Bool
+
+    private static let invalidCharacters = CharacterSet(charactersIn: ":/\\")
 
     var body: some View {
         VStack(spacing: 0) {
@@ -391,34 +397,64 @@ struct TabEditorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .alert("Update References", isPresented: $showUpdateReferencesAlert) {
+            Button("Don't Update", role: .cancel) {
+                commitRename(updateReferences: false)
+            }
+            Button("Update (\(referenceCount))") {
+                commitRename(updateReferences: true)
+            }
+            .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("\(referenceCount) file(s) reference \"\(pendingRename?.oldName ?? "")\". Update them to \"\(pendingRename?.newName ?? "")\"?")
+        }
     }
 
     private var titleField: some View {
-        TextField("Filename", text: $editingName)
-            .textFieldStyle(.plain)
-            .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .focused($nameFieldFocused)
-            .onSubmit {
-                renameFile()
-                nameFieldFocused = false
-                tab.needsFocus = true
-            }
-            .onChange(of: nameFieldFocused) { _, focused in
-                if !focused { renameFile() }
-            }
-            .onAppear { syncName() }
-            .onChange(of: tab.openFileURL) { _, _ in syncName() }
-            .onChange(of: tab.needsNameFieldFocus) { _, needed in
-                if needed {
-                    nameFieldFocused = true
-                    tab.needsNameFieldFocus = false
-                    DispatchQueue.main.async {
-                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+        VStack(alignment: .leading, spacing: 2) {
+            TextField("Filename", text: $editingName)
+                .textFieldStyle(.plain)
+                .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, nameError != nil ? 0 : 8)
+                .focused($nameFieldFocused)
+                .onSubmit {
+                    renameFile()
+                    if nameError == nil {
+                        nameFieldFocused = false
+                        tab.needsFocus = true
                     }
                 }
+                .onChange(of: nameFieldFocused) { _, focused in
+                    if !focused {
+                        renameFile()
+                        if nameError != nil { syncName() }
+                        nameError = nil
+                    }
+                }
+                .onChange(of: editingName) { _, _ in
+                    nameError = nil
+                }
+                .onAppear { syncName() }
+                .onChange(of: tab.openFileURL) { _, _ in syncName() }
+                .onChange(of: tab.needsNameFieldFocus) { _, needed in
+                    if needed {
+                        nameFieldFocused = true
+                        tab.needsNameFieldFocus = false
+                        DispatchQueue.main.async {
+                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                        }
+                    }
+                }
+            if let error = nameError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
             }
+        }
     }
 
     private var markdownEditor: some View {
@@ -455,15 +491,48 @@ struct TabEditorView: View {
             editingName = currentName
             return
         }
+
+        if newName.unicodeScalars.contains(where: { Self.invalidCharacters.contains($0) }) {
+            nameError = "Filename cannot contain : / or \\"
+            return
+        }
+
         let ext = url.pathExtension
         let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
-        do {
-            try FileManager.default.moveItem(at: url, to: newURL)
-            appState.graph.renameFile(oldName: currentName, newName: newName, newURL: newURL)
-            tab.openFileURL = newURL
-        } catch {
-            editingName = currentName
+
+        if FileManager.default.fileExists(atPath: newURL.path(percentEncoded: false)) {
+            nameError = "A file named \"\(newName)\" already exists"
+            return
         }
+
+        let incoming = appState.graph.incomingReferences(for: currentName)
+        if !incoming.isEmpty {
+            pendingRename = (oldName: currentName, newName: newName, oldURL: url, newURL: newURL)
+            referenceCount = incoming.count
+            showUpdateReferencesAlert = true
+        } else {
+            performRename(oldName: currentName, newName: newName, oldURL: url, newURL: newURL, updateReferences: false)
+        }
+    }
+
+    private func commitRename(updateReferences: Bool) {
+        guard let rename = pendingRename else { return }
+        performRename(oldName: rename.oldName, newName: rename.newName, oldURL: rename.oldURL, newURL: rename.newURL, updateReferences: updateReferences)
+        pendingRename = nil
+    }
+
+    private func performRename(oldName: String, newName: String, oldURL: URL, newURL: URL, updateReferences: Bool) {
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+        } catch {
+            editingName = oldName
+            return
+        }
+        if updateReferences {
+            appState.graph.updateReferencesInFiles(oldName: oldName, newName: newName)
+        }
+        appState.graph.renameFile(oldName: oldName, newName: newName, newURL: newURL)
+        tab.openFileURL = newURL
     }
 }
 
