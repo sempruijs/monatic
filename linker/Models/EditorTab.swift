@@ -27,6 +27,7 @@ class EditorTab: Identifiable {
     var needsFocus: Bool = false
     var needsNameFieldFocus: Bool = false
     var showReferences: Bool = false
+    var pendingInsert: String?
     @ObservationIgnored var indexWorkItem: DispatchWorkItem?
 
     var contentType: TabContentType {

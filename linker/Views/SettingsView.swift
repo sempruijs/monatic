@@ -36,6 +36,20 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Templates") {
+                Picker("Template folder", selection: $appState.templateFolder) {
+                    Text("None").tag("")
+                    ForEach(appState.graph.subdirectories, id: \.self) { dir in
+                        Text(dir).tag(dir)
+                    }
+                }
+                if !appState.templateFolder.isEmpty {
+                    Text("Use {{title}}, {{date}}, {{time}} in templates. Format: {{date:YYYY-MM-DD}}")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Renaming") {
                 Picker("Update references on rename", selection: $appState.renameReferenceBehavior) {
                     ForEach(RenameReferenceBehavior.allCases, id: \.self) { behavior in

@@ -32,6 +32,10 @@ private struct DeleteFileActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct ShowTemplatePickerKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -72,6 +76,11 @@ extension FocusedValues {
         get { self[DeleteFileActionKey.self] }
         set { self[DeleteFileActionKey.self] = newValue }
     }
+
+    var showTemplatePicker: Binding<Bool>? {
+        get { self[ShowTemplatePickerKey.self] }
+        set { self[ShowTemplatePickerKey.self] = newValue }
+    }
 }
 
 @main
@@ -85,6 +94,7 @@ struct linkerApp: App {
     @FocusedValue(\.newTabAction) var newTabAction
     @FocusedValue(\.closeTabAction) var closeTabAction
     @FocusedValue(\.deleteFileAction) var deleteFileAction
+    @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
 
     var body: some Scene {
         WindowGroup {
@@ -115,6 +125,12 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("n")
                 .disabled(newFileAction == nil)
+
+                Button("Insert Template") {
+                    showTemplatePicker = true
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(showTemplatePicker == nil)
 
                 Divider()
 

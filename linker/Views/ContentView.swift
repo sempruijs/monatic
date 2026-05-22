@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showQuickOpen: Bool = false
     @State private var showVaultPicker: Bool = false
     @State private var showDeleteConfirmation: Bool = false
+    @State private var showTemplatePicker: Bool = false
 
     private var selectedTab: EditorTab? {
         tabs.first { $0.id == selectedTabID } ?? tabs.first
@@ -46,7 +47,11 @@ struct ContentView: View {
             .focusedSceneValue(\.goBackAction, goBackActionBinding)
             .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
             .focusedSceneValue(\.deleteFileAction, deleteFileActionBinding)
+            .focusedSceneValue(\.showTemplatePicker, $showTemplatePicker)
             .onChange(of: showQuickOpen) { _, isOpen in
+                if !isOpen { selectedTab?.needsFocus = true }
+            }
+            .onChange(of: showTemplatePicker) { _, isOpen in
                 if !isOpen { selectedTab?.needsFocus = true }
             }
             .alert(
@@ -76,6 +81,15 @@ struct ContentView: View {
 
             if showQuickOpen {
                 QuickOpenPanel(isPresented: $showQuickOpen, onOpenFile: openFile)
+            }
+
+            if showTemplatePicker {
+                TemplatePicker(
+                    isPresented: $showTemplatePicker,
+                    currentTitle: currentNoteName ?? "Untitled"
+                ) { text in
+                    insertTemplate(text)
+                }
             }
         }
     }
@@ -335,6 +349,11 @@ struct ContentView: View {
         if let next = appState.graph.files.first {
             openFile(next.url)
         }
+    }
+
+    private func insertTemplate(_ text: String) {
+        guard let tab = selectedTab, tab.contentType == .markdown else { return }
+        tab.pendingInsert = text
     }
 
     private func createNewFile() {

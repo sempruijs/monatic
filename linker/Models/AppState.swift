@@ -51,10 +51,19 @@ class AppState {
         didSet { UserDefaults.standard.set(newFileFolder, forKey: "newFileFolder") }
     }
 
+    var templateFolder: String = UserDefaults.standard.string(forKey: "templateFolder") ?? "" {
+        didSet { UserDefaults.standard.set(templateFolder, forKey: "templateFolder") }
+    }
+
     var newFileFolderURL: URL? {
         guard let vault = vaultURL else { return nil }
         if newFileFolder.isEmpty { return vault }
         return vault.appendingPathComponent(newFileFolder)
+    }
+
+    var templateFolderURL: URL? {
+        guard let vault = vaultURL, !templateFolder.isEmpty else { return nil }
+        return vault.appendingPathComponent(templateFolder)
     }
 
     func restoreVaultIfNeeded() {
