@@ -1,6 +1,20 @@
 import AppKit
 import Foundation
 
+enum RenameReferenceBehavior: String, CaseIterable {
+    case ask = "ask"
+    case dontUpdate = "dontUpdate"
+    case update = "update"
+
+    var label: String {
+        switch self {
+        case .ask: "Ask"
+        case .dontUpdate: "Don't Update"
+        case .update: "Update"
+        }
+    }
+}
+
 @Observable
 class AppState {
     var graph = VaultGraph()
@@ -21,6 +35,16 @@ class AppState {
 
     var dynamicRendering: Bool = UserDefaults.standard.object(forKey: "dynamicRendering") as? Bool ?? true {
         didSet { UserDefaults.standard.set(dynamicRendering, forKey: "dynamicRendering") }
+    }
+
+    var renameReferenceBehavior: RenameReferenceBehavior = {
+        if let raw = UserDefaults.standard.string(forKey: "renameReferenceBehavior"),
+           let value = RenameReferenceBehavior(rawValue: raw) {
+            return value
+        }
+        return .ask
+    }() {
+        didSet { UserDefaults.standard.set(renameReferenceBehavior.rawValue, forKey: "renameReferenceBehavior") }
     }
 
     var newFileFolder: String = UserDefaults.standard.string(forKey: "newFileFolder") ?? "" {
