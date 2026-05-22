@@ -83,8 +83,11 @@ struct MarkdownTextView: NSViewRepresentable {
 
         context.coordinator.applyMarkdownStyling(to: textView)
 
-        DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
+        if needsFocus {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+                self.needsFocus = false
+            }
         }
 
         return scrollView
@@ -142,9 +145,6 @@ struct MarkdownTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             context.coordinator.applyMarkdownStyling(to: textView)
-            DispatchQueue.main.async {
-                textView.window?.makeFirstResponder(textView)
-            }
         } else if fontChanged || wrapChanged || renderingChanged {
             context.coordinator.applyMarkdownStyling(to: textView)
         }

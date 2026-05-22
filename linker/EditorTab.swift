@@ -9,6 +9,7 @@ class EditorTab: Identifiable {
     var history = NavigationHistory()
     var cursorPositionToRestore: Int?
     var needsFocus: Bool = false
+    var needsNameFieldFocus: Bool = false
     var showReferences: Bool = false
     @ObservationIgnored var indexWorkItem: DispatchWorkItem?
 
