@@ -81,6 +81,10 @@ fileprivate class CompletionPanel: NSObject, NSTableViewDataSource, NSTableViewD
         super.init()
 
         panel.contentView = scrollView
+        panel.setAccessibilityRole(.popover)
+        panel.setAccessibilityLabel("Link completions")
+        tableView.setAccessibilityRole(.list)
+        tableView.setAccessibilityLabel("Suggestions")
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
@@ -103,6 +107,7 @@ fileprivate class CompletionPanel: NSObject, NSTableViewDataSource, NSTableViewD
             parentWindow.addChildWindow(panel, ordered: .above)
         }
         panel.orderFront(nil)
+        announceSelection()
     }
 
     func hide() {
@@ -115,6 +120,7 @@ fileprivate class CompletionPanel: NSObject, NSTableViewDataSource, NSTableViewD
         let row = max(tableView.selectedRow - 1, 0)
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
+        announceSelection()
     }
 
     func moveDown() {
@@ -122,6 +128,18 @@ fileprivate class CompletionPanel: NSObject, NSTableViewDataSource, NSTableViewD
         let row = min(tableView.selectedRow + 1, items.count - 1)
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
+        announceSelection()
+    }
+
+    private func announceSelection() {
+        guard let item = selectedItem() else { return }
+        let row = tableView.selectedRow
+        let message = "\(item), \(row + 1) of \(items.count)"
+        NSAccessibility.post(
+            element: tableView,
+            notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue]
+        )
     }
 
     func selectedItem() -> String? {
