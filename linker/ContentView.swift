@@ -371,9 +371,6 @@ struct TabEditorView: View {
     var onOpenLink: (String) -> Void
     @State private var editingName: String = ""
     @State private var nameError: String?
-    @State private var pendingRename: (oldName: String, newName: String, oldURL: URL, newURL: URL)?
-    @State private var showUpdateReferencesAlert: Bool = false
-    @State private var referenceCount: Int = 0
     @FocusState private var nameFieldFocused: Bool
 
     private static let invalidCharacters = CharacterSet(charactersIn: ":/\\")
@@ -396,17 +393,6 @@ struct TabEditorView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
-        .alert("Update References", isPresented: $showUpdateReferencesAlert) {
-            Button("Don't Update", role: .cancel) {
-                commitRename(updateReferences: false)
-            }
-            Button("Update (\(referenceCount))") {
-                commitRename(updateReferences: true)
-            }
-            .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("\(referenceCount) file(s) reference \"\(pendingRename?.oldName ?? "")\". Update them to \"\(pendingRename?.newName ?? "")\"?")
         }
     }
 
@@ -523,19 +509,39 @@ struct TabEditorView: View {
         let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
 
         let incoming = appState.graph.incomingReferences(for: currentName)
-        if !incoming.isEmpty {
-            pendingRename = (oldName: currentName, newName: newName, oldURL: url, newURL: newURL)
-            referenceCount = incoming.count
-            showUpdateReferencesAlert = true
-        } else {
+        if incoming.isEmpty {
+            performRename(oldName: currentName, newName: newName, oldURL: url, newURL: newURL, updateReferences: false)
+            return
+        }
+
+        switch appState.renameReferenceBehavior {
+        case .ask:
+            let shouldUpdate = showRenameReferencesAlert(oldName: currentName, newName: newName, count: incoming.count)
+            performRename(oldName: currentName, newName: newName, oldURL: url, newURL: newURL, updateReferences: shouldUpdate)
+        case .update:
+            performRename(oldName: currentName, newName: newName, oldURL: url, newURL: newURL, updateReferences: true)
+        case .dontUpdate:
             performRename(oldName: currentName, newName: newName, oldURL: url, newURL: newURL, updateReferences: false)
         }
     }
 
-    private func commitRename(updateReferences: Bool) {
-        guard let rename = pendingRename else { return }
-        performRename(oldName: rename.oldName, newName: rename.newName, oldURL: rename.oldURL, newURL: rename.newURL, updateReferences: updateReferences)
-        pendingRename = nil
+    private func showRenameReferencesAlert(oldName: String, newName: String, count: Int) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Update References"
+        alert.informativeText = "\(count) file(s) reference \"\(oldName)\". Update them to \"\(newName)\"?"
+        alert.addButton(withTitle: "Update (\(count))")
+        alert.addButton(withTitle: "Don't Update")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't ask again"
+
+        let response = alert.runModal()
+        let shouldUpdate = response == .alertFirstButtonReturn
+
+        if alert.suppressionButton?.state == .on {
+            appState.renameReferenceBehavior = shouldUpdate ? .update : .dontUpdate
+        }
+
+        return shouldUpdate
     }
 
     private func performRename(oldName: String, newName: String, oldURL: URL, newURL: URL, updateReferences: Bool) {

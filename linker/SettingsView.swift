@@ -36,6 +36,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Renaming") {
+                Picker("Update references on rename", selection: $appState.renameReferenceBehavior) {
+                    ForEach(RenameReferenceBehavior.allCases, id: \.self) { behavior in
+                        Text(behavior.label).tag(behavior)
+                    }
+                }
+            }
+
             Section("Editor") {
                 HStack {
                     Text("Text Size")
