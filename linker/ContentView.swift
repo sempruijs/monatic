@@ -433,8 +433,8 @@ struct TabEditorView: View {
                         nameError = nil
                     }
                 }
-                .onChange(of: editingName) { _, _ in
-                    nameError = nil
+                .onChange(of: editingName) { _, newValue in
+                    validateName(newValue)
                 }
                 .onAppear { syncName() }
                 .onChange(of: tab.openFileURL) { _, _ in syncName() }
@@ -483,6 +483,30 @@ struct TabEditorView: View {
         editingName = tab.openFileURL?.deletingPathExtension().lastPathComponent ?? ""
     }
 
+    private func validateName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = tab.openFileURL else {
+            nameError = nil
+            return
+        }
+        let currentName = url.deletingPathExtension().lastPathComponent
+        if trimmed.isEmpty || trimmed == currentName {
+            nameError = nil
+            return
+        }
+        if trimmed.unicodeScalars.contains(where: { Self.invalidCharacters.contains($0) }) {
+            nameError = "Filename cannot contain : / or \\"
+            return
+        }
+        let ext = url.pathExtension
+        let newURL = url.deletingLastPathComponent().appendingPathComponent("\(trimmed).\(ext)")
+        if FileManager.default.fileExists(atPath: newURL.path(percentEncoded: false)) {
+            nameError = "A file named \"\(trimmed)\" already exists"
+            return
+        }
+        nameError = nil
+    }
+
     private func renameFile() {
         guard let url = tab.openFileURL else { return }
         let currentName = url.deletingPathExtension().lastPathComponent
@@ -492,18 +516,11 @@ struct TabEditorView: View {
             return
         }
 
-        if newName.unicodeScalars.contains(where: { Self.invalidCharacters.contains($0) }) {
-            nameError = "Filename cannot contain : / or \\"
-            return
-        }
+        validateName(editingName)
+        if nameError != nil { return }
 
         let ext = url.pathExtension
         let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
-
-        if FileManager.default.fileExists(atPath: newURL.path(percentEncoded: false)) {
-            nameError = "A file named \"\(newName)\" already exists"
-            return
-        }
 
         let incoming = appState.graph.incomingReferences(for: currentName)
         if !incoming.isEmpty {
