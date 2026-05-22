@@ -20,6 +20,14 @@ private struct GoForwardActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct NewTabActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct CloseTabActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var showQuickOpen: Binding<Bool>? {
         get { self[QuickOpenKey.self] }
@@ -45,6 +53,16 @@ extension FocusedValues {
         get { self[GoForwardActionKey.self] }
         set { self[GoForwardActionKey.self] = newValue }
     }
+
+    var newTabAction: (() -> Void)? {
+        get { self[NewTabActionKey.self] }
+        set { self[NewTabActionKey.self] = newValue }
+    }
+
+    var closeTabAction: (() -> Void)? {
+        get { self[CloseTabActionKey.self] }
+        set { self[CloseTabActionKey.self] = newValue }
+    }
 }
 
 @main
@@ -55,6 +73,8 @@ struct linkerApp: App {
     @FocusedValue(\.newFileAction) var newFileAction
     @FocusedValue(\.goBackAction) var goBackAction
     @FocusedValue(\.goForwardAction) var goForwardAction
+    @FocusedValue(\.newTabAction) var newTabAction
+    @FocusedValue(\.closeTabAction) var closeTabAction
 
     var body: some Scene {
         WindowGroup {
@@ -63,6 +83,20 @@ struct linkerApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("New Tab") {
+                    newTabAction?()
+                }
+                .keyboardShortcut("t")
+                .disabled(newTabAction == nil)
+
+                Button("Close Tab") {
+                    closeTabAction?()
+                }
+                .keyboardShortcut("w")
+                .disabled(closeTabAction == nil)
+
+                Divider()
+
                 Button("New Note") {
                     newFileAction?()
                 }

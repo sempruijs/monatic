@@ -41,24 +41,70 @@ class NavigationHistory {
     }
 }
 
+@Observable
+class EditorTab: Identifiable {
+    let id = UUID()
+    var openFileURL: URL?
+    var fileContent: String = ""
+    var history = NavigationHistory()
+    var cursorPositionToRestore: Int?
+    var showReferences: Bool = false
+
+    var title: String {
+        openFileURL?.deletingPathExtension().lastPathComponent ?? "Empty"
+    }
+}
+
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var openFileURL: URL?
-    @State private var fileContent: String = ""
+    @State private var tabs: [EditorTab] = [EditorTab()]
+    @State private var selectedTabID: UUID?
     @State private var showQuickOpen: Bool = false
     @State private var showVaultPicker: Bool = false
-    @State private var history = NavigationHistory()
-    @State private var cursorPositionToRestore: Int?
-    @State private var showReferences: Bool = false
+
+    private var selectedTab: EditorTab? {
+        tabs.first { $0.id == selectedTabID } ?? tabs.first
+    }
 
     private var currentNoteName: String? {
-        openFileURL?.deletingPathExtension().lastPathComponent
+        selectedTab?.openFileURL?.deletingPathExtension().lastPathComponent
+    }
+
+    private var goBackActionBinding: (() -> Void)? {
+        selectedTab?.history.canGoBack == true ? { goBack() } : nil
+    }
+
+    private var goForwardActionBinding: (() -> Void)? {
+        selectedTab?.history.canGoForward == true ? { goForward() } : nil
+    }
+
+    private var closeTabActionBinding: (() -> Void)? {
+        tabs.count > 1 ? { closeCurrentTab() } : nil
     }
 
     var body: some View {
+        mainContent
+            .frame(minWidth: 600, minHeight: 400)
+            .onAppear(perform: handleAppear)
+            .navigationTitle(currentNoteName ?? "Monatic")
+            .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
+            .focusedSceneValue(\.saveAction, saveCurrentFile)
+            .focusedSceneValue(\.newFileAction, createNewFile)
+            .focusedSceneValue(\.newTabAction, addNewTab)
+            .focusedSceneValue(\.closeTabAction, closeTabActionBinding)
+            .focusedSceneValue(\.goBackAction, goBackActionBinding)
+            .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
+    }
+
+    private var mainContent: some View {
         ZStack {
             if appState.vaultURL != nil {
-                editorView
+                VStack(spacing: 0) {
+                    if tabs.count > 1 {
+                        tabBar
+                    }
+                    editorView
+                }
             } else {
                 selectVaultView
             }
@@ -67,22 +113,61 @@ struct ContentView: View {
                 QuickOpenPanel(isPresented: $showQuickOpen, onOpenFile: openFile)
             }
         }
-        .frame(minWidth: 600, minHeight: 400)
-        .onAppear {
-            appState.restoreVaultIfNeeded()
-            if appState.vaultURL != nil && openFileURL == nil {
-                if let first = appState.graph.files.first {
-                    openFile(first.url)
+    }
+
+    private func handleAppear() {
+        appState.restoreVaultIfNeeded()
+        if selectedTabID == nil {
+            selectedTabID = tabs.first?.id
+        }
+        if appState.vaultURL != nil, selectedTab?.openFileURL == nil {
+            if let first = appState.graph.files.first {
+                openFile(first.url)
+            }
+        }
+    }
+
+    // MARK: - Tab Bar
+
+    private var tabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(tabs) { tab in
+                    tabButton(for: tab)
                 }
             }
         }
-        .navigationTitle(currentNoteName ?? "Monatic")
-        .focusedSceneValue(\.showQuickOpen, $showQuickOpen)
-        .focusedSceneValue(\.saveAction, saveCurrentFile)
-        .focusedSceneValue(\.newFileAction, createNewFile)
-        .focusedSceneValue(\.goBackAction, history.canGoBack ? { goBack() } : nil)
-        .focusedSceneValue(\.goForwardAction, history.canGoForward ? { goForward() } : nil)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
+
+    private func tabButton(for tab: EditorTab) -> some View {
+        let isSelected = tab.id == selectedTabID
+        return HStack(spacing: 6) {
+            Text(tab.title)
+                .font(.system(size: 11))
+                .lineLimit(1)
+            if tabs.count > 1 {
+                Button {
+                    closeTab(tab.id)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedTabID = tab.id
+        }
+    }
+
+    // MARK: - Views
 
     private var selectVaultView: some View {
         VStack(spacing: 16) {
@@ -109,52 +194,36 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if openFileURL != nil {
+            if let tab = selectedTab, tab.openFileURL != nil {
                 HStack(spacing: 0) {
-                    MarkdownTextView(
-                        text: $fileContent,
-                        fileNames: appState.graph.fileNameSet,
-                        fontSize: appState.fontSize,
-                        wordWrap: appState.wordWrap,
-                        cursorPositionToRestore: $cursorPositionToRestore,
-                        onOpenLink: { openLinkedFile($0) },
-                        onCursorChange: { history.latestCursorPosition = $0 },
-                        onTextChange: { newContent in
-                            fileContent = newContent
-                            if appState.autoSave, let url = openFileURL {
-                                try? newContent.write(to: url, atomically: true, encoding: .utf8)
-                                if let name = currentNoteName {
-                                    appState.graph.indexFile(name: name, url: url)
-                                }
-                            }
-                        }
-                    )
+                    TabEditorView(tab: tab, appState: appState, onOpenLink: openLinkedFile)
 
-                    if showReferences, let name = currentNoteName {
+                    if tab.showReferences, tab.openFileURL != nil {
                         Divider()
                         ReferencesPanel(
-                            filename: name,
+                            filename: tab.title,
                             graph: appState.graph,
                             onOpenFile: { openLinkedFile($0) }
                         )
                         .frame(width: 250)
                     }
                 }
+                .id(tab.id)
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
                         Button(action: goBack) {
                             Label("Back", systemImage: "chevron.left")
                         }
-                        .disabled(!history.canGoBack)
+                        .disabled(tab.history.canGoBack != true)
 
                         Button(action: goForward) {
                             Label("Forward", systemImage: "chevron.right")
                         }
-                        .disabled(!history.canGoForward)
+                        .disabled(tab.history.canGoForward != true)
                     }
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            showReferences.toggle()
+                            tab.showReferences.toggle()
                         } label: {
                             Label("References", systemImage: "link")
                         }
@@ -167,6 +236,31 @@ struct ContentView: View {
             }
         }
     }
+
+    // MARK: - Tab Management
+
+    private func addNewTab() {
+        let tab = EditorTab()
+        tabs.append(tab)
+        selectedTabID = tab.id
+    }
+
+    private func closeCurrentTab() {
+        guard let id = selectedTabID, tabs.count > 1 else { return }
+        closeTab(id)
+    }
+
+    private func closeTab(_ id: UUID) {
+        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let wasSelected = id == selectedTabID
+        tabs.remove(at: index)
+        if wasSelected {
+            let newIndex = min(index, tabs.count - 1)
+            selectedTabID = tabs[newIndex].id
+        }
+    }
+
+    // MARK: - File Actions
 
     private func openLinkedFile(_ name: String) {
         if let url = appState.graph.url(for: name) {
@@ -183,41 +277,43 @@ struct ContentView: View {
     }
 
     private func openFile(_ url: URL) {
-        history.saveCursorPosition(history.latestCursorPosition)
+        guard let tab = selectedTab else { return }
+        tab.history.saveCursorPosition(tab.history.latestCursorPosition)
         do {
-            fileContent = try String(contentsOf: url, encoding: .utf8)
-            openFileURL = url
-            history.visit(url)
+            tab.fileContent = try String(contentsOf: url, encoding: .utf8)
+            tab.openFileURL = url
+            tab.history.visit(url)
         } catch {}
         showQuickOpen = false
     }
 
     private func goBack() {
-        history.saveCursorPosition(history.latestCursorPosition)
-        guard let entry = history.goBack() else { return }
+        guard let tab = selectedTab else { return }
+        tab.history.saveCursorPosition(tab.history.latestCursorPosition)
+        guard let entry = tab.history.goBack() else { return }
         do {
-            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-            openFileURL = entry.url
-            cursorPositionToRestore = entry.cursorPosition
+            tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+            tab.openFileURL = entry.url
+            tab.cursorPositionToRestore = entry.cursorPosition
         } catch {}
     }
 
     private func goForward() {
-        history.saveCursorPosition(history.latestCursorPosition)
-        guard let entry = history.goForward() else { return }
+        guard let tab = selectedTab else { return }
+        tab.history.saveCursorPosition(tab.history.latestCursorPosition)
+        guard let entry = tab.history.goForward() else { return }
         do {
-            fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-            openFileURL = entry.url
-            cursorPositionToRestore = entry.cursorPosition
+            tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
+            tab.openFileURL = entry.url
+            tab.cursorPositionToRestore = entry.cursorPosition
         } catch {}
     }
 
     private func saveCurrentFile() {
-        guard let url = openFileURL else { return }
-        try? fileContent.write(to: url, atomically: true, encoding: .utf8)
-        if let name = currentNoteName {
-            appState.graph.indexFile(name: name, url: url)
-        }
+        guard let tab = selectedTab, let url = tab.openFileURL else { return }
+        try? tab.fileContent.write(to: url, atomically: true, encoding: .utf8)
+        let name = url.deletingPathExtension().lastPathComponent
+        appState.graph.indexFile(name: name, url: url)
     }
 
     private func createNewFile() {
@@ -237,10 +333,41 @@ struct ContentView: View {
         }
         let actualName = url.deletingPathExtension().lastPathComponent
         appState.graph.addFile(name: actualName, url: url)
-        fileContent = ""
-        openFileURL = url
+        guard let tab = selectedTab else { return }
+        tab.fileContent = ""
+        tab.openFileURL = url
     }
 }
+
+// MARK: - Tab Editor View
+
+struct TabEditorView: View {
+    @Bindable var tab: EditorTab
+    let appState: AppState
+    var onOpenLink: (String) -> Void
+
+    var body: some View {
+        MarkdownTextView(
+            text: $tab.fileContent,
+            fileNames: appState.graph.fileNameSet,
+            fontSize: appState.fontSize,
+            wordWrap: appState.wordWrap,
+            cursorPositionToRestore: $tab.cursorPositionToRestore,
+            onOpenLink: onOpenLink,
+            onCursorChange: { tab.history.latestCursorPosition = $0 },
+            onTextChange: { newContent in
+                tab.fileContent = newContent
+                if appState.autoSave, let url = tab.openFileURL {
+                    try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                    let name = url.deletingPathExtension().lastPathComponent
+                    appState.graph.indexFile(name: name, url: url)
+                }
+            }
+        )
+    }
+}
+
+// MARK: - References Panel
 
 struct ReferencesPanel: View {
     let filename: String
