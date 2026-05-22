@@ -14,6 +14,17 @@ class MarkdownNSTextView: NSTextView {
         return super.textContainerOrigin
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "f" {
+            let item = NSMenuItem()
+            item.tag = NSTextFinder.Action.showFindInterface.rawValue
+            performFindPanelAction(item)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if let panel = completionPanel, panel.isVisible {
             switch event.keyCode {
@@ -64,6 +75,8 @@ struct MarkdownTextView: NSViewRepresentable {
     var onTitleCommit: (() -> Void)?
     var onTitleFocusLost: (() -> Void)?
     @Binding var needsTitleFocus: Bool
+    var isEditable: Bool = true
+    var contentPadding: CGFloat = 80
 
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(text: $text, titleText: $titleText, onOpenLink: onOpenLink, onCursorChange: onCursorChange, onTextChange: onTextChange, onTitleCommit: onTitleCommit, onTitleFocusLost: onTitleFocusLost)
@@ -103,8 +116,8 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.isAutomaticLinkDetectionEnabled = false
-        textView.allowsUndo = true
-        textView.isEditable = true
+        textView.allowsUndo = isEditable
+        textView.isEditable = isEditable
         textView.isSelectable = true
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -120,6 +133,9 @@ struct MarkdownTextView: NSViewRepresentable {
         let titleFieldY: CGFloat = 44
         let titleFieldHeight = ceil(titleFont.boundingRectForFont.height) + 8
 
+        let titleX = contentPadding + 4
+        let titleWidth = max(100, contentSize.width - titleX * 2)
+
         let titleField = NSTextField()
         titleField.stringValue = titleText
         titleField.isBordered = false
@@ -127,21 +143,23 @@ struct MarkdownTextView: NSViewRepresentable {
         titleField.font = titleFont
         titleField.placeholderString = "Filename"
         titleField.focusRingType = .none
+        titleField.isEditable = isEditable
+        titleField.isSelectable = isEditable
         titleField.delegate = context.coordinator
-        titleField.frame = NSRect(x: 84, y: titleFieldY, width: max(100, contentSize.width - 168), height: titleFieldHeight)
+        titleField.frame = NSRect(x: titleX, y: titleFieldY, width: titleWidth, height: titleFieldHeight)
         titleField.autoresizingMask = [.width]
 
         let errorLabel = NSTextField(labelWithString: titleError ?? "")
         errorLabel.font = NSFont.systemFont(ofSize: 11)
         errorLabel.textColor = .systemRed
         errorLabel.isHidden = titleError == nil
-        errorLabel.frame = NSRect(x: 84, y: titleFieldY + titleFieldHeight + 2, width: max(100, contentSize.width - 168), height: 16)
+        errorLabel.frame = NSRect(x: titleX, y: titleFieldY + titleFieldHeight + 2, width: titleWidth, height: 16)
         errorLabel.autoresizingMask = [.width]
 
         let titleInset = titleFieldY + titleFieldHeight + (titleError != nil ? 22 : 0) + 16
         let bottomPadding = max(400, contentSize.height / 2)
         textView.customTopInset = titleInset
-        textView.textContainerInset = NSSize(width: 80, height: titleInset + bottomPadding)
+        textView.textContainerInset = NSSize(width: contentPadding, height: titleInset + bottomPadding)
 
         textView.addSubview(titleField)
         textView.addSubview(errorLabel)
@@ -276,7 +294,7 @@ struct MarkdownTextView: NSViewRepresentable {
         let totalInset = titleInset + bottomPadding
         (textView as? MarkdownNSTextView)?.customTopInset = titleInset
         if abs(textView.textContainerInset.height - totalInset) > 0.5 {
-            textView.textContainerInset = NSSize(width: 80, height: totalInset)
+            textView.textContainerInset = NSSize(width: contentPadding, height: totalInset)
             textView.needsLayout = true
         }
 
