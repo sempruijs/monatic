@@ -87,6 +87,7 @@ struct TabEditorView: View {
             dynamicRendering: appState.dynamicRendering,
             cursorPositionToRestore: $tab.cursorPositionToRestore,
             needsFocus: $tab.needsFocus,
+            pendingInsert: $tab.pendingInsert,
             onOpenLink: onOpenLink,
             onCursorChange: { tab.history.latestCursorPosition = $0 },
             onTextChange: { newContent in

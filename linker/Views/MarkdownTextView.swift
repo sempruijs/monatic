@@ -47,6 +47,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var dynamicRendering: Bool
     @Binding var cursorPositionToRestore: Int?
     @Binding var needsFocus: Bool
+    @Binding var pendingInsert: String?
     var onOpenLink: (String) -> Void
     var onCursorChange: ((Int) -> Void)?
     var onTextChange: ((String) -> Void)?
@@ -150,6 +151,17 @@ struct MarkdownTextView: NSViewRepresentable {
                 textView.setSelectedRange(NSRange(location: safe, length: 0))
                 textView.scrollRangeToVisible(NSRange(location: safe, length: 0))
                 self.cursorPositionToRestore = nil
+            }
+        }
+
+        if let insertText = pendingInsert {
+            self.pendingInsert = nil
+            DispatchQueue.main.async {
+                let range = textView.selectedRange()
+                if textView.shouldChangeText(in: range, replacementString: insertText) {
+                    textView.replaceCharacters(in: range, with: insertText)
+                    textView.didChangeText()
+                }
             }
         }
 
