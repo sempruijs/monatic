@@ -3,6 +3,7 @@ import SwiftUI
 struct ReferencesPanel: View {
     let outgoing: [ReferenceItem]
     let incoming: [ReferenceItem]
+    var fontSize: CGFloat
     var onOpenFile: (String) -> Void
 
     var body: some View {
@@ -20,18 +21,18 @@ struct ReferencesPanel: View {
     private func referenceSection(title: String, items: [ReferenceItem]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption)
+                .font(.system(size: fontSize * 0.8))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
             if items.isEmpty {
                 Text("None")
-                    .font(.system(size: 12))
+                    .font(.system(size: fontSize))
                     .foregroundStyle(.tertiary)
             } else {
                 ForEach(items, id: \.name) { item in
                     Text(item.name)
-                        .font(.system(size: 12))
+                        .font(.system(size: fontSize))
                         .foregroundStyle(item.exists ? .primary : .secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 3)
@@ -40,6 +41,33 @@ struct ReferencesPanel: View {
                         .onTapGesture { onOpenFile(item.name) }
                 }
             }
+        }
+    }
+}
+
+struct ReferencesDragHandle: View {
+    @Binding var width: CGFloat
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 6)
+            .overlay(Divider(), alignment: .leading)
+            .contentShape(Rectangle())
+            .cursor(.resizeLeftRight)
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        width = max(150, width - value.translation.width)
+                    }
+            )
+    }
+}
+
+private extension View {
+    func cursor(_ cursor: NSCursor) -> some View {
+        onHover { inside in
+            if inside { cursor.push() } else { NSCursor.pop() }
         }
     }
 }
