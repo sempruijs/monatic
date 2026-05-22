@@ -18,6 +18,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var fontSize: CGFloat
     var wordWrap: Bool
     @Binding var cursorPositionToRestore: Int?
+    @Binding var needsFocus: Bool
     var onOpenLink: (String) -> Void
     var onCursorChange: ((Int) -> Void)?
     var onTextChange: ((String) -> Void)?
@@ -80,6 +81,10 @@ struct MarkdownTextView: NSViewRepresentable {
 
         context.coordinator.applyMarkdownStyling(to: textView)
 
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
+
         return scrollView
     }
 
@@ -89,6 +94,13 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onTextChange = onTextChange
         context.coordinator.fileNames = fileNames
+
+        if needsFocus {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+                self.needsFocus = false
+            }
+        }
 
         if let position = cursorPositionToRestore {
             DispatchQueue.main.async {
@@ -125,6 +137,9 @@ struct MarkdownTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             context.coordinator.applyMarkdownStyling(to: textView)
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
         } else if fontChanged || wrapChanged {
             context.coordinator.applyMarkdownStyling(to: textView)
         }
