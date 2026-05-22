@@ -181,6 +181,35 @@ class VaultGraph {
         return result.sorted { $0.source.localizedCompare($1.source) == .orderedAscending }
     }
 
+    func renameFile(oldName: String, newName: String, newURL: URL) {
+        let oldEntry = filesByName.removeValue(forKey: oldName)
+        fileNameSet.remove(oldName)
+        files.removeAll { $0.name == oldName }
+
+        let entry = FileEntry(name: newName, url: newURL)
+        filesByName[newName] = entry
+        fileNameSet.insert(newName)
+        let idx = files.firstIndex { newName.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
+        files.insert(entry, at: idx)
+
+        if let refs = references.removeValue(forKey: oldName) {
+            references[newName] = refs
+        }
+        indexedModDates.removeValue(forKey: oldName)
+        indexedModDates[newName] = (try? newURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+
+        if let i = recentFiles.firstIndex(where: { $0.name == oldName }) {
+            recentFiles[i] = entry
+        }
+
+        searchIndex.removeAll { $0.name == oldName }
+        searchIndex.append(IndexedName(
+            name: newName,
+            scalars: Array(newName.lowercased().unicodeScalars.map(\.value)),
+            url: newURL
+        ))
+    }
+
     func addFile(name: String, url: URL) {
         let entry = FileEntry(name: name, url: url)
         filesByName[name] = entry

@@ -309,27 +309,66 @@ struct TabEditorView: View {
     @Bindable var tab: EditorTab
     let appState: AppState
     var onOpenLink: (String) -> Void
+    @State private var editingName: String = ""
+    @FocusState private var nameFieldFocused: Bool
 
     var body: some View {
-        MarkdownTextView(
-            text: $tab.fileContent,
-            fileNames: appState.graph.fileNameSet,
-            fontSize: appState.fontSize,
-            wordWrap: appState.wordWrap,
-            dynamicRendering: appState.dynamicRendering,
-            cursorPositionToRestore: $tab.cursorPositionToRestore,
-            needsFocus: $tab.needsFocus,
-            onOpenLink: onOpenLink,
-            onCursorChange: { tab.history.latestCursorPosition = $0 },
-            onTextChange: { newContent in
-                tab.fileContent = newContent
-                if appState.autoSave, let url = tab.openFileURL {
-                    try? newContent.write(to: url, atomically: true, encoding: .utf8)
-                    let name = url.deletingPathExtension().lastPathComponent
-                    tab.scheduleIndex(name: name, url: url, graph: appState.graph)
+        VStack(spacing: 0) {
+            TextField("Filename", text: $editingName)
+                .textFieldStyle(.plain)
+                .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .focused($nameFieldFocused)
+                .onSubmit { renameFile() }
+                .onChange(of: nameFieldFocused) { _, focused in
+                    if !focused { renameFile() }
                 }
-            }
-        )
+                .onAppear { syncName() }
+                .onChange(of: tab.openFileURL) { _, _ in syncName() }
+            Divider()
+            MarkdownTextView(
+                text: $tab.fileContent,
+                fileNames: appState.graph.fileNameSet,
+                fontSize: appState.fontSize,
+                wordWrap: appState.wordWrap,
+                dynamicRendering: appState.dynamicRendering,
+                cursorPositionToRestore: $tab.cursorPositionToRestore,
+                needsFocus: $tab.needsFocus,
+                onOpenLink: onOpenLink,
+                onCursorChange: { tab.history.latestCursorPosition = $0 },
+                onTextChange: { newContent in
+                    tab.fileContent = newContent
+                    if appState.autoSave, let url = tab.openFileURL {
+                        try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                        let name = url.deletingPathExtension().lastPathComponent
+                        tab.scheduleIndex(name: name, url: url, graph: appState.graph)
+                    }
+                }
+            )
+        }
+    }
+
+    private func syncName() {
+        editingName = tab.openFileURL?.deletingPathExtension().lastPathComponent ?? ""
+    }
+
+    private func renameFile() {
+        guard let url = tab.openFileURL else { return }
+        let currentName = url.deletingPathExtension().lastPathComponent
+        let newName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != currentName else {
+            editingName = currentName
+            return
+        }
+        let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        do {
+            try FileManager.default.moveItem(at: url, to: newURL)
+            appState.graph.renameFile(oldName: currentName, newName: newName, newURL: newURL)
+            tab.openFileURL = newURL
+        } catch {
+            editingName = currentName
+        }
     }
 }
 
