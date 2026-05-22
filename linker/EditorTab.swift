@@ -1,6 +1,22 @@
 import Observation
 import Foundation
 
+enum TabContentType {
+    case markdown
+    case pdf
+    case unsupported
+
+    static func from(url: URL) -> TabContentType {
+        switch url.pathExtension.lowercased() {
+        case "md", "markdown", "txt": return .markdown
+        case "pdf": return .pdf
+        default: return .unsupported
+        }
+    }
+
+    static let supportedExtensions: Set<String> = ["md", "markdown", "txt", "pdf"]
+}
+
 @Observable
 class EditorTab: Identifiable {
     let id = UUID()
@@ -13,8 +29,13 @@ class EditorTab: Identifiable {
     var showReferences: Bool = false
     @ObservationIgnored var indexWorkItem: DispatchWorkItem?
 
+    var contentType: TabContentType {
+        guard let url = openFileURL else { return .markdown }
+        return TabContentType.from(url: url)
+    }
+
     var title: String {
-        openFileURL?.deletingPathExtension().lastPathComponent ?? "Empty"
+        openFileURL?.lastPathComponent ?? "Empty"
     }
 
     func scheduleIndex(name: String, url: URL, graph: VaultGraph) {
