@@ -189,6 +189,16 @@ struct ContentView: View {
                         }
                         .disabled(tab.history.canGoForward != true)
                     }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(action: createNewFile) {
+                            Label("New Note", systemImage: "square.and.pencil")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { showDeleteConfirmation = true } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                     if tab.contentType == .markdown {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
