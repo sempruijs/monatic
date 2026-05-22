@@ -19,6 +19,10 @@ class AppState {
         didSet { UserDefaults.standard.set(autoSave, forKey: "autoSave") }
     }
 
+    var dynamicRendering: Bool = UserDefaults.standard.object(forKey: "dynamicRendering") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(dynamicRendering, forKey: "dynamicRendering") }
+    }
+
     func restoreVaultIfNeeded() {
         guard !hasRestored else { return }
         hasRestored = true

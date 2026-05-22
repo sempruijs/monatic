@@ -39,6 +39,7 @@ struct SettingsView: View {
                 }
                 Toggle("Word Wrap", isOn: $appState.wordWrap)
                 Toggle("Auto Save", isOn: $appState.autoSave)
+                Toggle("Dynamic Rendering", isOn: $appState.dynamicRendering)
             }
         }
         .formStyle(.grouped)
