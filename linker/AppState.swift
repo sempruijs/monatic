@@ -23,6 +23,16 @@ class AppState {
         didSet { UserDefaults.standard.set(dynamicRendering, forKey: "dynamicRendering") }
     }
 
+    var newFileFolder: String = UserDefaults.standard.string(forKey: "newFileFolder") ?? "" {
+        didSet { UserDefaults.standard.set(newFileFolder, forKey: "newFileFolder") }
+    }
+
+    var newFileFolderURL: URL? {
+        guard let vault = vaultURL else { return nil }
+        if newFileFolder.isEmpty { return vault }
+        return vault.appendingPathComponent(newFileFolder)
+    }
+
     func restoreVaultIfNeeded() {
         guard !hasRestored else { return }
         hasRestored = true

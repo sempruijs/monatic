@@ -30,6 +30,7 @@ class VaultGraph {
     private(set) var fileNameSet: Set<String> = []
     private(set) var references: [String: [Reference]] = [:]
     private(set) var recentFiles: [FileEntry] = []
+    private(set) var subdirectories: [String] = []
     private var markdownByName: [String: FileEntry] = [:]
     private var allFilesByDisplayName: [String: FileEntry] = [:]
     private var indexedModDates: [String: Date] = [:]
@@ -51,12 +52,26 @@ class VaultGraph {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: vaultURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return }
 
+        let vaultPath = vaultURL.path(percentEncoded: false)
+        var dirs: Set<String> = []
+
         for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let resourceValues = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+            if resourceValues?.isDirectory == true {
+                let full = url.path(percentEncoded: false)
+                if full.hasPrefix(vaultPath) {
+                    let relative = String(full.dropFirst(vaultPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    if !relative.isEmpty {
+                        dirs.insert(relative)
+                    }
+                }
+                continue
+            }
+            guard resourceValues?.isRegularFile == true else { continue }
             let ext = url.pathExtension.lowercased()
             let display = Self.displayName(for: url)
             let entry = FileEntry(name: display, url: url)
@@ -68,6 +83,7 @@ class VaultGraph {
             }
         }
 
+        subdirectories = dirs.sorted { $0.localizedCompare($1) == .orderedAscending }
         files = allFilesByDisplayName.values.sorted {
             $0.name.localizedCompare($1.name) == .orderedAscending
         }

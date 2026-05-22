@@ -233,8 +233,9 @@ struct ContentView: View {
         if let url = appState.graph.url(for: name) {
             openFile(url)
         } else if !name.contains(".") {
-            guard let vault = appState.vaultURL else { return }
-            let url = vault.appendingPathComponent("\(name).md")
+            guard let folder = appState.newFileFolderURL else { return }
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent("\(name).md")
             do {
                 try Data().write(to: url)
                 appState.graph.addFile(name: name, url: url)
@@ -296,8 +297,9 @@ struct ContentView: View {
     }
 
     private func createNewFile() {
-        guard let folder = appState.vaultURL else { return }
+        guard let folder = appState.newFileFolderURL else { return }
         let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = "Untitled"
         var url = folder.appendingPathComponent("\(name).md")
         var counter = 1
