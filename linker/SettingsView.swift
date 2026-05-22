@@ -49,14 +49,5 @@ struct SettingsView: View {
                 appState.setVault(url)
             }
         }
-        .onChange(of: appState.fontSize) {
-            UserDefaults.standard.set(appState.fontSize, forKey: "fontSize")
-        }
-        .onChange(of: appState.wordWrap) {
-            UserDefaults.standard.set(appState.wordWrap, forKey: "wordWrap")
-        }
-        .onChange(of: appState.autoSave) {
-            UserDefaults.standard.set(appState.autoSave, forKey: "autoSave")
-        }
     }
 }

@@ -193,6 +193,13 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // MARK: - Styling
 
+        private static let headingRegex = try! NSRegularExpression(pattern: "^(#{1,5})\\s+(.+)$", options: .anchorsMatchLines)
+        private static let wikiLinkRegex = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+        private static let markdownLinkRegex = try! NSRegularExpression(pattern: "(?<!\\[)\\[([^\\[\\]]+)\\]\\(([^)]+)\\)")
+        private static let boldRegex = try! NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*")
+        private static let italicRegex = try! NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)")
+        private static let headingScales: [CGFloat] = [2.0, 1.7, 1.4, 1.2, 1.1]
+
         private func cursorInside(_ cursor: Int, _ range: NSRange) -> Bool {
             cursor >= range.location && cursor <= NSMaxRange(range)
         }
@@ -202,6 +209,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let string = textStorage.string
             let fullRange = NSRange(location: 0, length: textStorage.length)
             let cursor = textView.selectedRange().location
+            let nsString = string as NSString
 
             var newHidden = IndexSet()
 
@@ -214,115 +222,86 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
-            let headingScales: [CGFloat] = [2.0, 1.7, 1.4, 1.2, 1.1]
-            if let regex = try? NSRegularExpression(pattern: "^(#{1,5})\\s+(.+)$", options: .anchorsMatchLines) {
-                for match in regex.matches(in: string, range: fullRange) {
-                    let matchRange = match.range(at: 0)
-                    let hashRange = match.range(at: 1)
-                    let textRange = match.range(at: 2)
-                    let level = hashRange.length
-                    let scale = headingScales[min(level, headingScales.count) - 1]
-                    let headingSize = fontSize * scale
-                    textStorage.addAttribute(
-                        .font,
-                        value: NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold),
-                        range: textRange
-                    )
-                    textStorage.addAttribute(
-                        .font,
-                        value: NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold),
-                        range: hashRange
-                    )
-                    if !cursorInside(cursor, matchRange) {
-                        let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
-                        newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
-                        newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
-                    }
+            for match in Self.headingRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let hashRange = match.range(at: 1)
+                let textRange = match.range(at: 2)
+                let level = hashRange.length
+                let scale = Self.headingScales[min(level, Self.headingScales.count) - 1]
+                let headingSize = fontSize * scale
+                let headingFont = NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold)
+                textStorage.addAttribute(.font, value: headingFont, range: textRange)
+                textStorage.addAttribute(.font, value: headingFont, range: hashRange)
+                if !cursorInside(cursor, matchRange) {
+                    let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
+                    newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
+                    newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
                 }
             }
 
-            // Wiki links [[...]]
             let existingColor = NSColor.systemBlue
             let missingColor = NSColor.systemBlue.withAlphaComponent(0.4)
-            if let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]") {
-                for match in regex.matches(in: string, range: fullRange) {
-                    let matchRange = match.range(at: 0)
-                    let innerRange = match.range(at: 1)
-                    let linkName = (string as NSString).substring(with: innerRange)
-                    let color = fileNames.contains(linkName) ? existingColor : missingColor
-                    let encoded = linkName.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? linkName
-                    if let url = URL(string: "wikilink://\(encoded)") {
-                        textStorage.addAttribute(.link, value: url, range: innerRange)
-                    }
-                    textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
-                    if !cursorInside(cursor, matchRange) {
-                        newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
-                        newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
-                    }
+            for match in Self.wikiLinkRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let innerRange = match.range(at: 1)
+                let linkName = nsString.substring(with: innerRange)
+                let color = fileNames.contains(linkName) ? existingColor : missingColor
+                let encoded = linkName.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? linkName
+                if let url = URL(string: "wikilink://\(encoded)") {
+                    textStorage.addAttribute(.link, value: url, range: innerRange)
+                }
+                textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
+                if !cursorInside(cursor, matchRange) {
+                    newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
+                    newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
                 }
             }
 
-            // Markdown links [text](url)
-            if let regex = try? NSRegularExpression(pattern: "(?<!\\[)\\[([^\\[\\]]+)\\]\\(([^)]+)\\)") {
-                for match in regex.matches(in: string, range: fullRange) {
-                    let matchRange = match.range(at: 0)
-                    let textRange = match.range(at: 1)
-                    let urlRange = match.range(at: 2)
-                    let urlString = (string as NSString).substring(with: urlRange)
-                    if let url = URL(string: urlString) {
-                        textStorage.addAttribute(.link, value: url, range: textRange)
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
-                    }
-                    if !cursorInside(cursor, matchRange) {
-                        newHidden.insert(matchRange.location)
-                        let tailStart = NSMaxRange(textRange)
-                        newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
-                    }
+            for match in Self.markdownLinkRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let textRange = match.range(at: 1)
+                let urlRange = match.range(at: 2)
+                let urlString = nsString.substring(with: urlRange)
+                if let url = URL(string: urlString) {
+                    textStorage.addAttribute(.link, value: url, range: textRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
+                }
+                if !cursorInside(cursor, matchRange) {
+                    newHidden.insert(matchRange.location)
+                    let tailStart = NSMaxRange(textRange)
+                    newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
                 }
             }
 
-            // Bold **...**
-            if let regex = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*") {
-                for match in regex.matches(in: string, range: fullRange) {
-                    let matchRange = match.range(at: 0)
-                    let innerRange = match.range(at: 1)
-                    textStorage.addAttribute(
-                        .font,
-                        value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
-                        range: innerRange
-                    )
-                    if !cursorInside(cursor, matchRange) {
-                        newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
-                        newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
-                    }
+            for match in Self.boldRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let innerRange = match.range(at: 1)
+                textStorage.addAttribute(
+                    .font,
+                    value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
+                    range: innerRange
+                )
+                if !cursorInside(cursor, matchRange) {
+                    newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
+                    newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
                 }
             }
 
-            // Italic *...* or _..._
-            if let regex = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)") {
-                for match in regex.matches(in: string, range: fullRange) {
-                    let matchRange = match.range(at: 0)
-                    let group1 = match.range(at: 1)
-                    let group2 = match.range(at: 2)
-                    let innerRange = group1.location != NSNotFound ? group1 : group2
-                    guard innerRange.location != NSNotFound else { continue }
-                    let currentFont = textStorage.attribute(.font, at: innerRange.location, effectiveRange: nil) as? NSFont
-                    let isBold = currentFont?.fontDescriptor.symbolicTraits.contains(.bold) == true
-                    let italicFont: NSFont
-                    if isBold {
-                        let desc = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
-                            .fontDescriptor.withSymbolicTraits(.italic)
-                        italicFont = NSFont(descriptor: desc, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
-                    } else {
-                        let desc = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-                            .fontDescriptor.withSymbolicTraits(.italic)
-                        italicFont = NSFont(descriptor: desc, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-                    }
-                    textStorage.addAttribute(.font, value: italicFont, range: innerRange)
-                    if !cursorInside(cursor, matchRange) {
-                        newHidden.insert(matchRange.location)
-                        newHidden.insert(NSMaxRange(matchRange) - 1)
-                    }
+            for match in Self.italicRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let group1 = match.range(at: 1)
+                let group2 = match.range(at: 2)
+                let innerRange = group1.location != NSNotFound ? group1 : group2
+                guard innerRange.location != NSNotFound else { continue }
+                let currentFont = textStorage.attribute(.font, at: innerRange.location, effectiveRange: nil) as? NSFont
+                let isBold = currentFont?.fontDescriptor.symbolicTraits.contains(.bold) == true
+                let baseFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: isBold ? .bold : .regular)
+                let desc = baseFont.fontDescriptor.withSymbolicTraits(.italic)
+                let italicFont = NSFont(descriptor: desc, size: fontSize) ?? baseFont
+                textStorage.addAttribute(.font, value: italicFont, range: innerRange)
+                if !cursorInside(cursor, matchRange) {
+                    newHidden.insert(matchRange.location)
+                    newHidden.insert(NSMaxRange(matchRange) - 1)
                 }
             }
 
