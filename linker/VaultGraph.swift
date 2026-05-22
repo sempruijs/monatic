@@ -34,6 +34,7 @@ class VaultGraph {
     private var allFilesByDisplayName: [String: FileEntry] = [:]
     private var indexedModDates: [String: Date] = [:]
     private var searchIndex: [IndexedName] = []
+    private var vaultURL: URL?
     private static let maxRecents = 10
     private static let markdownExtensions: Set<String> = ["md", "markdown", "txt"]
 
@@ -43,6 +44,7 @@ class VaultGraph {
     }
 
     func build(from vaultURL: URL) {
+        self.vaultURL = vaultURL
         markdownByName.removeAll()
         allFilesByDisplayName.removeAll()
 
@@ -178,7 +180,42 @@ class VaultGraph {
     }
 
     func url(for name: String) -> URL? {
-        allFilesByDisplayName[name]?.url
+        if let entry = allFilesByDisplayName[name] {
+            return entry.url
+        }
+        return findOnDisk(name: name)
+    }
+
+    private func findOnDisk(name: String) -> URL? {
+        guard let vaultURL = vaultURL else { return nil }
+        let candidates: [String]
+        if name.contains(".") {
+            candidates = [name]
+        } else {
+            candidates = Self.markdownExtensions.map { "\(name).\($0)" }
+        }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: vaultURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let fileName = url.lastPathComponent
+            if candidates.contains(fileName) {
+                let display = Self.displayName(for: url)
+                let entry = FileEntry(name: display, url: url)
+                allFilesByDisplayName[display] = entry
+                fileNameSet.insert(display)
+                let ext = url.pathExtension.lowercased()
+                if Self.markdownExtensions.contains(ext) {
+                    markdownByName[url.deletingPathExtension().lastPathComponent] = entry
+                }
+                return url
+            }
+        }
+        return nil
     }
 
     func outgoingReferences(for filename: String) -> [Reference] {
