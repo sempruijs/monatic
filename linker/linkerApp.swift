@@ -90,10 +90,13 @@ struct linkerApp: App {
                 .disabled(newTabAction == nil)
 
                 Button("Close Tab") {
-                    closeTabAction?()
+                    if let closeTabAction {
+                        closeTabAction()
+                    } else {
+                        NSApp.keyWindow?.close()
+                    }
                 }
                 .keyboardShortcut("w")
-                .disabled(closeTabAction == nil)
 
                 Divider()
 
