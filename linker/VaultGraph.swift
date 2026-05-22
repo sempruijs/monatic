@@ -17,6 +17,7 @@ class VaultGraph {
     private(set) var fileNameSet: Set<String> = []
     private(set) var references: [String: [Reference]] = [:]
     private var filesByName: [String: FileEntry] = [:]
+    private var indexedModDates: [String: Date] = [:]
 
     func build(from vaultURL: URL) {
         filesByName.removeAll()
@@ -43,32 +44,27 @@ class VaultGraph {
     }
 
     private func buildReferences() {
-        var result: [String: [Reference]] = [:]
-        let regex = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
-        for entry in files {
-            guard let content = try? String(contentsOf: entry.url, encoding: .utf8) else { continue }
-            let nsContent = content as NSString
-            var refs: [Reference] = []
-            for match in regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length)) {
-                let innerRange = match.range(at: 1)
-                let target = nsContent.substring(with: innerRange)
-                let location = match.range(at: 0).location
-                let lineRange = nsContent.lineRange(for: NSRange(location: location, length: 0))
-                let lineStart = lineRange.location
-                var lineNumber = 1
-                var i = 0
-                while i < location {
-                    if nsContent.character(at: i) == 0x0A { lineNumber += 1 }
-                    i += 1
-                }
-                let column = location - lineStart + 1
-                refs.append(Reference(line: lineNumber, column: column, filename: target))
-            }
-            if !refs.isEmpty {
-                result[entry.name] = refs
-            }
+        let currentNames = Set(filesByName.keys)
+        for stale in indexedModDates.keys where !currentNames.contains(stale) {
+            indexedModDates.removeValue(forKey: stale)
+            references.removeValue(forKey: stale)
         }
-        references = result
+
+        var changed = false
+        for entry in files {
+            let modDate = (try? entry.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modDate, indexedModDates[entry.name] == modDate {
+                continue
+            }
+            indexedModDates[entry.name] = modDate
+            parseReferences(name: entry.name, url: entry.url)
+            changed = true
+        }
+
+        if changed {
+            // trigger observation by reassigning
+            references = references
+        }
     }
 
     func search(_ query: String, limit: Int = 20) -> [FileEntry] {
@@ -114,23 +110,32 @@ class VaultGraph {
     }
 
     func indexFile(name: String, url: URL) {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+        indexedModDates[name] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        parseReferences(name: name, url: url)
+    }
+
+    private static let wikiLinkRegex = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+
+    private func parseReferences(name: String, url: URL) {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            references.removeValue(forKey: name)
+            return
+        }
         let nsContent = content as NSString
-        let regex = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
+        let fullRange = NSRange(location: 0, length: nsContent.length)
         var refs: [Reference] = []
-        for match in regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length)) {
+        for match in Self.wikiLinkRegex.matches(in: content, range: fullRange) {
             let innerRange = match.range(at: 1)
             let target = nsContent.substring(with: innerRange)
             let location = match.range(at: 0).location
             let lineRange = nsContent.lineRange(for: NSRange(location: location, length: 0))
-            let lineStart = lineRange.location
             var lineNumber = 1
             var i = 0
             while i < location {
                 if nsContent.character(at: i) == 0x0A { lineNumber += 1 }
                 i += 1
             }
-            let column = location - lineStart + 1
+            let column = location - lineRange.location + 1
             refs.append(Reference(line: lineNumber, column: column, filename: target))
         }
         references[name] = refs.isEmpty ? nil : refs
