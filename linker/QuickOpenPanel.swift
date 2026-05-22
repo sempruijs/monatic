@@ -32,6 +32,7 @@ struct QuickOpenPanel: View {
             searchResults = appState.graph.search(searchQuery)
             showingRecents = searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
             selectedIndex = 0
+            DispatchQueue.main.async { announceSelection() }
         }
     }
 
@@ -41,13 +42,16 @@ struct QuickOpenPanel: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .focused($isSearchFocused)
+                .accessibilityLabel("Search files")
                 .onSubmit(openSelected)
                 .onKeyPress(.downArrow) {
                     if selectedIndex < searchResults.count - 1 { selectedIndex += 1 }
+                    announceSelection()
                     return .handled
                 }
                 .onKeyPress(.upArrow) {
                     if selectedIndex > 0 { selectedIndex -= 1 }
+                    announceSelection()
                     return .handled
                 }
                 .onKeyPress(.escape) {
@@ -88,6 +92,8 @@ struct QuickOpenPanel: View {
                 }
             }
             .padding(.horizontal, 4)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Search results, \(searchResults.count) items")
         }
         .frame(maxHeight: 300)
     }
@@ -104,6 +110,9 @@ struct QuickOpenPanel: View {
             .cornerRadius(4)
             .contentShape(Rectangle())
             .onTapGesture { select(result.url) }
+            .accessibilityLabel(result.name)
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            .accessibilityRemoveTraits(isSelected ? [] : [.isSelected])
     }
 
     private func openSelected() {
@@ -118,6 +127,16 @@ struct QuickOpenPanel: View {
 
     private func close() {
         isPresented = false
+    }
+
+    private func announceSelection() {
+        guard let result = searchResults[safe: selectedIndex] else { return }
+        let message = "\(result.name), \(selectedIndex + 1) of \(searchResults.count)"
+        NSAccessibility.post(
+            element: NSApp.mainWindow as Any,
+            notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue]
+        )
     }
 }
 
