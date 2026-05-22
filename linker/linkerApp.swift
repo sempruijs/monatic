@@ -32,6 +32,10 @@ private struct DeleteFileActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct DailyNoteActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct ShowTemplatePickerKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -77,6 +81,11 @@ extension FocusedValues {
         set { self[DeleteFileActionKey.self] = newValue }
     }
 
+    var dailyNoteAction: (() -> Void)? {
+        get { self[DailyNoteActionKey.self] }
+        set { self[DailyNoteActionKey.self] = newValue }
+    }
+
     var showTemplatePicker: Binding<Bool>? {
         get { self[ShowTemplatePickerKey.self] }
         set { self[ShowTemplatePickerKey.self] = newValue }
@@ -94,6 +103,7 @@ struct linkerApp: App {
     @FocusedValue(\.newTabAction) var newTabAction
     @FocusedValue(\.closeTabAction) var closeTabAction
     @FocusedValue(\.deleteFileAction) var deleteFileAction
+    @FocusedValue(\.dailyNoteAction) var dailyNoteAction
     @FocusedBinding(\.showTemplatePicker) var showTemplatePicker
 
     var body: some Scene {
@@ -125,6 +135,12 @@ struct linkerApp: App {
                 }
                 .keyboardShortcut("n")
                 .disabled(newFileAction == nil)
+
+                Button("Daily Note") {
+                    dailyNoteAction?()
+                }
+                .keyboardShortcut("d")
+                .disabled(dailyNoteAction == nil)
 
                 Button("Insert Template") {
                     showTemplatePicker = true
