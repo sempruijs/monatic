@@ -47,6 +47,7 @@ struct ContentView: View {
             .focusedSceneValue(\.goBackAction, goBackActionBinding)
             .focusedSceneValue(\.goForwardAction, goForwardActionBinding)
             .focusedSceneValue(\.deleteFileAction, deleteFileActionBinding)
+            .focusedSceneValue(\.dailyNoteAction, openDailyNote)
             .focusedSceneValue(\.showTemplatePicker, $showTemplatePicker)
             .onChange(of: showQuickOpen) { _, isOpen in
                 if !isOpen { selectedTab?.needsFocus = true }
@@ -203,6 +204,11 @@ struct ContentView: View {
                         .disabled(tab.history.canGoForward != true)
                     }
                     ToolbarItem(placement: .primaryAction) {
+                        Button(action: openDailyNote) {
+                            Label("Daily Note", systemImage: "calendar")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
                         Button(action: createNewFile) {
                             Label("New Note", systemImage: "square.and.pencil")
                         }
@@ -354,6 +360,23 @@ struct ContentView: View {
     private func insertTemplate(_ text: String) {
         guard let tab = selectedTab, tab.contentType == .markdown else { return }
         tab.pendingInsert = text
+    }
+
+    private func openDailyNote() {
+        guard let folder = appState.newFileFolderURL else { return }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let name = formatter.string(from: Date())
+        let url = folder.appendingPathComponent("\(name).md")
+
+        if !fm.fileExists(atPath: url.path(percentEncoded: false)) {
+            try? Data().write(to: url)
+            appState.graph.addFile(name: name, url: url)
+        }
+        openFile(url)
     }
 
     private func createNewFile() {
