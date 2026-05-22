@@ -116,6 +116,29 @@ class VaultGraph {
 
     private static let wikiLinkRegex = try! NSRegularExpression(pattern: "\\[\\[([^\\]]+)\\]\\]")
 
+    private static func buildLineOffsets(for string: NSString) -> [Int] {
+        var offsets = [0]
+        for i in 0..<string.length {
+            if string.character(at: i) == 0x0A {
+                offsets.append(i + 1)
+            }
+        }
+        return offsets
+    }
+
+    private static func lineAndColumn(at location: Int, lineOffsets: [Int]) -> (line: Int, column: Int) {
+        var low = 0, high = lineOffsets.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineOffsets[mid] <= location {
+                low = mid
+            } else {
+                high = mid - 1
+            }
+        }
+        return (line: low + 1, column: location - lineOffsets[low] + 1)
+    }
+
     private func parseReferences(name: String, url: URL) {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
             references.removeValue(forKey: name)
@@ -123,20 +146,12 @@ class VaultGraph {
         }
         let nsContent = content as NSString
         let fullRange = NSRange(location: 0, length: nsContent.length)
+        let lineOffsets = Self.buildLineOffsets(for: nsContent)
         var refs: [Reference] = []
         for match in Self.wikiLinkRegex.matches(in: content, range: fullRange) {
-            let innerRange = match.range(at: 1)
-            let target = nsContent.substring(with: innerRange)
-            let location = match.range(at: 0).location
-            let lineRange = nsContent.lineRange(for: NSRange(location: location, length: 0))
-            var lineNumber = 1
-            var i = 0
-            while i < location {
-                if nsContent.character(at: i) == 0x0A { lineNumber += 1 }
-                i += 1
-            }
-            let column = location - lineRange.location + 1
-            refs.append(Reference(line: lineNumber, column: column, filename: target))
+            let target = nsContent.substring(with: match.range(at: 1))
+            let pos = Self.lineAndColumn(at: match.range(at: 0).location, lineOffsets: lineOffsets)
+            refs.append(Reference(line: pos.line, column: pos.column, filename: target))
         }
         references[name] = refs.isEmpty ? nil : refs
     }

@@ -5,10 +5,19 @@ import Foundation
 class AppState {
     var graph = VaultGraph()
     var vaultURL: URL?
-    var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14
-    var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true
-    var autoSave: Bool = UserDefaults.standard.object(forKey: "autoSave") as? Bool ?? true
     private var hasRestored = false
+
+    var fontSize: CGFloat = UserDefaults.standard.object(forKey: "fontSize") as? CGFloat ?? 14 {
+        didSet { UserDefaults.standard.set(fontSize, forKey: "fontSize") }
+    }
+
+    var wordWrap: Bool = UserDefaults.standard.object(forKey: "wordWrap") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(wordWrap, forKey: "wordWrap") }
+    }
+
+    var autoSave: Bool = UserDefaults.standard.object(forKey: "autoSave") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoSave, forKey: "autoSave") }
+    }
 
     func restoreVaultIfNeeded() {
         guard !hasRestored else { return }
@@ -25,11 +34,7 @@ class AppState {
         ), url.startAccessingSecurityScopedResource() {
             vaultURL = url
             graph.build(from: url)
-            if isStale {
-                if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-                    UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
-                }
-            }
+            if isStale { saveBookmark(for: url) }
             return
         }
 
@@ -48,12 +53,7 @@ class AppState {
     func setVault(_ url: URL) {
         vaultURL = url
         graph.build(from: url)
-
-        if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
-            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
-        } else if let bookmark = try? url.bookmarkData() {
-            UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
-        }
+        saveBookmark(for: url)
     }
 
     func clearVault() {
@@ -97,7 +97,10 @@ class AppState {
 
         vaultURL = url
         graph.build(from: url)
+        saveBookmark(for: url)
+    }
 
+    private func saveBookmark(for url: URL) {
         if let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
             UserDefaults.standard.set(bookmark, forKey: "vaultBookmark")
         } else if let bookmark = try? url.bookmarkData() {
