@@ -247,6 +247,7 @@ struct ContentView: View {
             tab.openFileURL = url
             tab.history.visit(url)
             appState.graph.recordVisit(url)
+            tab.needsFocus = true
         } catch {}
         showQuickOpen = false
     }
@@ -259,6 +260,7 @@ struct ContentView: View {
             tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
             tab.openFileURL = entry.url
             tab.cursorPositionToRestore = entry.cursorPosition
+            tab.needsFocus = true
         } catch {}
     }
 
@@ -270,6 +272,7 @@ struct ContentView: View {
             tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
             tab.openFileURL = entry.url
             tab.cursorPositionToRestore = entry.cursorPosition
+            tab.needsFocus = true
         } catch {}
     }
 
@@ -300,6 +303,7 @@ struct ContentView: View {
         guard let tab = selectedTab else { return }
         tab.fileContent = ""
         tab.openFileURL = url
+        tab.needsNameFieldFocus = true
     }
 }
 
@@ -320,12 +324,25 @@ struct TabEditorView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .focused($nameFieldFocused)
-                .onSubmit { renameFile() }
+                .onSubmit {
+                    renameFile()
+                    nameFieldFocused = false
+                    tab.needsFocus = true
+                }
                 .onChange(of: nameFieldFocused) { _, focused in
                     if !focused { renameFile() }
                 }
                 .onAppear { syncName() }
                 .onChange(of: tab.openFileURL) { _, _ in syncName() }
+                .onChange(of: tab.needsNameFieldFocus) { _, needed in
+                    if needed {
+                        nameFieldFocused = true
+                        tab.needsNameFieldFocus = false
+                        DispatchQueue.main.async {
+                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                        }
+                    }
+                }
             Divider()
             MarkdownTextView(
                 text: $tab.fileContent,
