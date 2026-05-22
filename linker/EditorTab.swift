@@ -35,7 +35,10 @@ class EditorTab: Identifiable {
     }
 
     var title: String {
-        openFileURL?.lastPathComponent ?? "Empty"
+        guard let url = openFileURL else { return "Empty" }
+        return contentType == .markdown
+            ? url.deletingPathExtension().lastPathComponent
+            : url.lastPathComponent
     }
 
     func scheduleIndex(name: String, url: URL, graph: VaultGraph) {
