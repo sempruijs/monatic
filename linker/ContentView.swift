@@ -147,8 +147,8 @@ struct ContentView: View {
                     if tab.showReferences, tab.openFileURL != nil {
                         Divider()
                         ReferencesPanel(
-                            filename: tab.title,
-                            graph: appState.graph,
+                            outgoing: outgoingItems(for: tab.title),
+                            incoming: incomingItems(for: tab.title),
                             onOpenFile: { openLinkedFile($0) }
                         )
                         .frame(width: 250)
@@ -203,6 +203,20 @@ struct ContentView: View {
         if wasSelected {
             let newIndex = min(index, tabs.count - 1)
             selectedTabID = tabs[newIndex].id
+        }
+    }
+
+    // MARK: - References
+
+    private func outgoingItems(for filename: String) -> [ReferenceItem] {
+        appState.graph.outgoingReferences(for: filename).map {
+            ReferenceItem(name: $0.filename, line: $0.line, column: $0.column, exists: appState.graph.fileNameSet.contains($0.filename))
+        }
+    }
+
+    private func incomingItems(for filename: String) -> [ReferenceItem] {
+        appState.graph.incomingReferences(for: filename).map {
+            ReferenceItem(name: $0.source, line: $0.reference.line, column: $0.reference.column, exists: true)
         }
     }
 
@@ -307,7 +321,7 @@ struct TabEditorView: View {
                 if appState.autoSave, let url = tab.openFileURL {
                     try? newContent.write(to: url, atomically: true, encoding: .utf8)
                     let name = url.deletingPathExtension().lastPathComponent
-                    appState.graph.indexFile(name: name, url: url)
+                    tab.scheduleIndex(name: name, url: url, graph: appState.graph)
                 }
             }
         )
