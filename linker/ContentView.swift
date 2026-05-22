@@ -316,6 +316,7 @@ struct TabEditorView: View {
             fileNames: appState.graph.fileNameSet,
             fontSize: appState.fontSize,
             wordWrap: appState.wordWrap,
+            dynamicRendering: appState.dynamicRendering,
             cursorPositionToRestore: $tab.cursorPositionToRestore,
             needsFocus: $tab.needsFocus,
             onOpenLink: onOpenLink,

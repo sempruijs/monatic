@@ -17,6 +17,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var fileNames: Set<String>
     var fontSize: CGFloat
     var wordWrap: Bool
+    var dynamicRendering: Bool
     @Binding var cursorPositionToRestore: Int?
     @Binding var needsFocus: Bool
     var onOpenLink: (String) -> Void
@@ -27,6 +28,7 @@ struct MarkdownTextView: NSViewRepresentable {
         let coordinator = Coordinator(text: $text, onOpenLink: onOpenLink, onCursorChange: onCursorChange, onTextChange: onTextChange)
         coordinator.fontSize = fontSize
         coordinator.wordWrap = wordWrap
+        coordinator.dynamicRendering = dynamicRendering
         coordinator.fileNames = fileNames
         return coordinator
     }
@@ -114,6 +116,9 @@ struct MarkdownTextView: NSViewRepresentable {
         let fontChanged = context.coordinator.fontSize != fontSize
         context.coordinator.fontSize = fontSize
 
+        let renderingChanged = context.coordinator.dynamicRendering != dynamicRendering
+        context.coordinator.dynamicRendering = dynamicRendering
+
         let wrapChanged = context.coordinator.wordWrap != wordWrap
         context.coordinator.wordWrap = wordWrap
 
@@ -140,7 +145,7 @@ struct MarkdownTextView: NSViewRepresentable {
             DispatchQueue.main.async {
                 textView.window?.makeFirstResponder(textView)
             }
-        } else if fontChanged || wrapChanged {
+        } else if fontChanged || wrapChanged || renderingChanged {
             context.coordinator.applyMarkdownStyling(to: textView)
         }
     }
@@ -153,6 +158,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var fileNames: Set<String> = []
         var fontSize: CGFloat = 14
         var wordWrap: Bool = true
+        var dynamicRendering: Bool = true
         private var isUpdating = false
         private var hiddenIndices = IndexSet()
 
@@ -279,23 +285,6 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
-            for match in Self.headingRegex.matches(in: string, range: fullRange) {
-                let matchRange = match.range(at: 0)
-                let hashRange = match.range(at: 1)
-                let textRange = match.range(at: 2)
-                let level = hashRange.length
-                let scale = Self.headingScales[min(level, Self.headingScales.count) - 1]
-                let headingSize = fontSize * scale
-                let headingFont = NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold)
-                textStorage.addAttribute(.font, value: headingFont, range: textRange)
-                textStorage.addAttribute(.font, value: headingFont, range: hashRange)
-                if !cursorInside(cursor, matchRange) {
-                    let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
-                    newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
-                    newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
-                }
-            }
-
             let existingColor = NSColor.systemBlue
             let missingColor = NSColor.systemBlue.withAlphaComponent(0.4)
             for match in Self.wikiLinkRegex.matches(in: string, range: fullRange) {
@@ -308,7 +297,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     textStorage.addAttribute(.link, value: url, range: innerRange)
                 }
                 textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
-                if !cursorInside(cursor, matchRange) {
+                if dynamicRendering && !cursorInside(cursor, matchRange) {
                     newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
                     newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
                 }
@@ -323,10 +312,37 @@ struct MarkdownTextView: NSViewRepresentable {
                     textStorage.addAttribute(.link, value: url, range: textRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
                 }
-                if !cursorInside(cursor, matchRange) {
+                if dynamicRendering && !cursorInside(cursor, matchRange) {
                     newHidden.insert(matchRange.location)
                     let tailStart = NSMaxRange(textRange)
                     newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
+                }
+            }
+
+            guard dynamicRendering else {
+                hiddenIndices = newHidden
+                textStorage.endEditing()
+                if let lm = textView.layoutManager {
+                    lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+                    lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+                }
+                return
+            }
+
+            for match in Self.headingRegex.matches(in: string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                let hashRange = match.range(at: 1)
+                let textRange = match.range(at: 2)
+                let level = hashRange.length
+                let scale = Self.headingScales[min(level, Self.headingScales.count) - 1]
+                let headingSize = fontSize * scale
+                let headingFont = NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold)
+                textStorage.addAttribute(.font, value: headingFont, range: textRange)
+                textStorage.addAttribute(.font, value: headingFont, range: hashRange)
+                if !cursorInside(cursor, matchRange) {
+                    let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
+                    newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
+                    newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
                 }
             }
 
