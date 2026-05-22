@@ -90,6 +90,7 @@ class VaultGraph {
         fileNameSet = Set(allFilesByDisplayName.keys)
         rebuildSearchIndex()
         buildReferences()
+        restoreRecents()
     }
 
     private func buildReferences() {
@@ -125,6 +126,17 @@ class VaultGraph {
         if recentFiles.count > Self.maxRecents {
             recentFiles.removeLast(recentFiles.count - Self.maxRecents)
         }
+        saveRecentNames()
+    }
+
+    private func saveRecentNames() {
+        let names = recentFiles.map(\.name)
+        UserDefaults.standard.set(names, forKey: "recentFileNames")
+    }
+
+    private func restoreRecents() {
+        guard let names = UserDefaults.standard.stringArray(forKey: "recentFileNames") else { return }
+        recentFiles = names.compactMap { allFilesByDisplayName[$0] }
     }
 
     func search(_ query: String, limit: Int = 20) -> [SearchResult] {
@@ -259,6 +271,7 @@ class VaultGraph {
         indexedModDates.removeValue(forKey: baseName)
         recentFiles.removeAll { $0.name == display }
         searchIndex.removeAll { $0.name == display }
+        saveRecentNames()
     }
 
     func renameFile(oldName: String, newName: String, newURL: URL) {

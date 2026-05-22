@@ -87,8 +87,9 @@ struct ContentView: View {
             selectedTabID = tabs.first?.id
         }
         if appState.vaultURL != nil, selectedTab?.openFileURL == nil {
-            if let first = appState.graph.files.first {
-                openFile(first.url)
+            let fileToOpen = appState.graph.recentFiles.first ?? appState.graph.files.first
+            if let file = fileToOpen {
+                openFile(file.url)
             }
         }
     }
