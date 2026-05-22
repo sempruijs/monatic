@@ -229,6 +229,7 @@ struct ContentView: View {
             tab.fileContent = try String(contentsOf: url, encoding: .utf8)
             tab.openFileURL = url
             tab.history.visit(url)
+            appState.graph.recordVisit(url)
         } catch {}
         showQuickOpen = false
     }

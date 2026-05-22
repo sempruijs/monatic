@@ -8,6 +8,7 @@ struct QuickOpenPanel: View {
     @State private var searchQuery = ""
     @State private var searchResults: [VaultGraph.FileEntry] = []
     @State private var selectedIndex: Int = 0
+    @State private var showingRecents = true
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -17,11 +18,7 @@ struct QuickOpenPanel: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .focused($isSearchFocused)
-                    .onSubmit {
-                        if !searchResults.isEmpty {
-                            select(searchResults[selectedIndex].url)
-                        }
-                    }
+                    .onSubmit(openSelected)
                     .onKeyPress(.downArrow) {
                         if selectedIndex < searchResults.count - 1 {
                             selectedIndex += 1
@@ -42,31 +39,30 @@ struct QuickOpenPanel: View {
 
                 Divider()
 
+                if showingRecents && !searchResults.isEmpty {
+                    HStack {
+                        Text("Recent")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+                }
+
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(searchResults.enumerated()), id: \.offset) { index, result in
-                                Button {
-                                    select(result.url)
-                                } label: {
-                                    Text(result.name)
-                                        .font(.system(size: 13))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 5)
-                                        .background(index == selectedIndex ? Color.accentColor : Color.clear)
-                                        .foregroundStyle(index == selectedIndex ? .white : .primary)
-                                        .cornerRadius(4)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .id(index)
+                        VStack(spacing: 0) {
+                            ForEach(Array(searchResults.enumerated()), id: \.element.name) { index, result in
+                                resultRow(result: result, index: index)
                             }
                         }
                         .padding(.horizontal, 4)
                     }
                     .onChange(of: selectedIndex) { _, newValue in
-                        proxy.scrollTo(newValue, anchor: .center)
+                        proxy.scrollTo(searchResults[safe: newValue]?.name, anchor: .center)
                     }
                 }
                 .frame(maxHeight: 300)
@@ -84,15 +80,42 @@ struct QuickOpenPanel: View {
         .onTapGesture { close() }
         .onExitCommand { close() }
         .onAppear {
-            searchResults = appState.graph.search("")
+            updateResults()
             DispatchQueue.main.async {
                 isSearchFocused = true
             }
         }
         .onChange(of: searchQuery) {
-            searchResults = appState.graph.search(searchQuery)
-            selectedIndex = 0
+            updateResults()
         }
+    }
+
+    private func resultRow(result: VaultGraph.FileEntry, index: Int) -> some View {
+        let isSelected = index == selectedIndex
+        return Text(result.name)
+            .font(.system(size: 13))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.accentColor : Color.clear)
+            .foregroundStyle(isSelected ? .white : .primary)
+            .cornerRadius(4)
+            .contentShape(Rectangle())
+            .id(result.name)
+            .onTapGesture {
+                select(result.url)
+            }
+    }
+
+    private func updateResults() {
+        searchResults = appState.graph.search(searchQuery)
+        showingRecents = searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
+        selectedIndex = 0
+    }
+
+    private func openSelected() {
+        guard let result = searchResults[safe: selectedIndex] else { return }
+        select(result.url)
     }
 
     private func select(_ url: URL) {
@@ -102,5 +125,11 @@ struct QuickOpenPanel: View {
 
     private func close() {
         isPresented = false
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
