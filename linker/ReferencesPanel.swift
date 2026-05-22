@@ -1,38 +1,19 @@
 import SwiftUI
 
 struct ReferencesPanel: View {
-    let filename: String
-    let graph: VaultGraph
+    let outgoing: [ReferenceItem]
+    let incoming: [ReferenceItem]
     var onOpenFile: (String) -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                referenceSection(
-                    title: "Outgoing",
-                    items: graph.outgoingReferences(for: filename).map { ref in
-                        ReferenceItem(name: ref.filename, line: ref.line, column: ref.column, exists: graph.fileNameSet.contains(ref.filename))
-                    }
-                )
-
-                referenceSection(
-                    title: "Incoming",
-                    items: graph.incomingReferences(for: filename).map { item in
-                        ReferenceItem(name: item.source, line: item.reference.line, column: item.reference.column, exists: true)
-                    }
-                )
-
+                referenceSection(title: "Outgoing", items: outgoing)
+                referenceSection(title: "Incoming", items: incoming)
                 Spacer()
             }
             .padding(12)
         }
-    }
-
-    private struct ReferenceItem {
-        let name: String
-        let line: Int
-        let column: Int
-        let exists: Bool
     }
 
     @ViewBuilder
@@ -48,29 +29,24 @@ struct ReferencesPanel: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
             } else {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    Button {
-                        onOpenFile(item.name)
-                    } label: {
-                        HStack {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                            Text(item.name)
-                                .font(.system(size: 12))
-                                .foregroundStyle(item.exists ? .primary : .secondary)
-                            Spacer()
-                            Text("\(item.line):\(item.column)")
-                                .font(.system(size: 10).monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                        }
+                ForEach(items, id: \.name) { item in
+                    Text(item.name)
+                        .font(.system(size: 12))
+                        .foregroundStyle(item.exists ? .primary : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 3)
                         .padding(.horizontal, 6)
                         .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                        .onTapGesture { onOpenFile(item.name) }
                 }
             }
         }
     }
+}
+
+struct ReferenceItem: Equatable {
+    let name: String
+    let line: Int
+    let column: Int
+    let exists: Bool
 }

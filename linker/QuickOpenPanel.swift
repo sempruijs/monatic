@@ -6,92 +6,94 @@ struct QuickOpenPanel: View {
     var onOpenFile: (URL) -> Void
 
     @State private var searchQuery = ""
-    @State private var searchResults: [VaultGraph.FileEntry] = []
+    @State private var searchResults: [VaultGraph.SearchResult] = []
     @State private var selectedIndex: Int = 0
     @State private var showingRecents = true
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                TextField("Search files...", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .focused($isSearchFocused)
-                    .onSubmit(openSelected)
-                    .onKeyPress(.downArrow) {
-                        if selectedIndex < searchResults.count - 1 {
-                            selectedIndex += 1
-                        }
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow) {
-                        if selectedIndex > 0 {
-                            selectedIndex -= 1
-                        }
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        close()
-                        return .handled
-                    }
-                    .padding(12)
-
-                Divider()
-
-                if showingRecents && !searchResults.isEmpty {
-                    HStack {
-                        Text("Recent")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
-                }
-
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(Array(searchResults.enumerated()), id: \.element.name) { index, result in
-                                resultRow(result: result, index: index)
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                    .onChange(of: selectedIndex) { _, newValue in
-                        proxy.scrollTo(searchResults[safe: newValue]?.name, anchor: .center)
-                    }
-                }
-                .frame(maxHeight: 300)
-            }
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .shadow(radius: 20)
-            .frame(width: 500)
-            .padding(.top, 50)
-
+            panel
+                .padding(.top, 50)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.3))
+        .background(Color.black.opacity(0.001))
         .onTapGesture { close() }
         .onExitCommand { close() }
         .onAppear {
-            updateResults()
+            searchResults = appState.graph.search("")
+            showingRecents = true
             DispatchQueue.main.async {
                 isSearchFocused = true
             }
         }
         .onChange(of: searchQuery) {
-            updateResults()
+            searchResults = appState.graph.search(searchQuery)
+            showingRecents = searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
+            selectedIndex = 0
         }
     }
 
-    private func resultRow(result: VaultGraph.FileEntry, index: Int) -> some View {
-        let isSelected = index == selectedIndex
+    private var panel: some View {
+        VStack(spacing: 0) {
+            TextField("Search files...", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16))
+                .focused($isSearchFocused)
+                .onSubmit(openSelected)
+                .onKeyPress(.downArrow) {
+                    if selectedIndex < searchResults.count - 1 { selectedIndex += 1 }
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    if selectedIndex > 0 { selectedIndex -= 1 }
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    close()
+                    return .handled
+                }
+                .padding(12)
+
+            Divider()
+
+            if showingRecents && !searchResults.isEmpty {
+                Text("RECENT")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+            }
+
+            resultsList
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .frame(width: 500)
+    }
+
+    private var resultsList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(searchResults) { result in
+                    resultRow(result)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .frame(maxHeight: 300)
+    }
+
+    private func resultRow(_ result: VaultGraph.SearchResult) -> some View {
+        let isSelected = result.id == searchResults[safe: selectedIndex]?.id
         return Text(result.name)
             .font(.system(size: 13))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,16 +103,7 @@ struct QuickOpenPanel: View {
             .foregroundStyle(isSelected ? .white : .primary)
             .cornerRadius(4)
             .contentShape(Rectangle())
-            .id(result.name)
-            .onTapGesture {
-                select(result.url)
-            }
-    }
-
-    private func updateResults() {
-        searchResults = appState.graph.search(searchQuery)
-        showingRecents = searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
-        selectedIndex = 0
+            .onTapGesture { select(result.url) }
     }
 
     private func openSelected() {

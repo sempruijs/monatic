@@ -13,12 +13,26 @@ class VaultGraph {
         let url: URL
     }
 
+    struct SearchResult: Identifiable {
+        let id: String
+        let name: String
+        let url: URL
+        let score: Int
+    }
+
+    private struct IndexedName {
+        let name: String
+        let scalars: [UInt32]
+        let url: URL
+    }
+
     private(set) var files: [FileEntry] = []
     private(set) var fileNameSet: Set<String> = []
     private(set) var references: [String: [Reference]] = [:]
     private(set) var recentFiles: [FileEntry] = []
     private var filesByName: [String: FileEntry] = [:]
     private var indexedModDates: [String: Date] = [:]
+    private var searchIndex: [IndexedName] = []
     private static let maxRecents = 10
 
     func build(from vaultURL: URL) {
@@ -42,6 +56,7 @@ class VaultGraph {
             $0.name.localizedCompare($1.name) == .orderedAscending
         }
         fileNameSet = Set(filesByName.keys)
+        rebuildSearchIndex()
         buildReferences()
     }
 
@@ -80,19 +95,72 @@ class VaultGraph {
         }
     }
 
-    func search(_ query: String, limit: Int = 20) -> [FileEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+    func search(_ query: String, limit: Int = 20) -> [SearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
-            return recentFiles.isEmpty ? Array(files.prefix(limit)) : recentFiles
-        }
-        var results: [FileEntry] = []
-        for file in files {
-            if file.name.lowercased().contains(trimmed) {
-                results.append(file)
-                if results.count >= limit { break }
+            let source = recentFiles.isEmpty ? Array(files.prefix(limit)) : recentFiles
+            return source.enumerated().map { i, f in
+                SearchResult(id: f.name, name: f.name, url: f.url, score: source.count - i)
             }
         }
-        return results
+        let queryScalars = Array(trimmed.lowercased().unicodeScalars.map(\.value))
+        var scored: [(index: Int, score: Int)] = []
+        scored.reserveCapacity(min(searchIndex.count, limit * 2))
+        for i in 0..<searchIndex.count {
+            if let score = Self.fuzzyScore(query: queryScalars, candidate: searchIndex[i].scalars) {
+                scored.append((i, score))
+            }
+        }
+        scored.sort { $0.score > $1.score }
+        let top = scored.prefix(limit)
+        return top.map { item in
+            let entry = searchIndex[item.index]
+            return SearchResult(id: entry.name, name: entry.name, url: entry.url, score: item.score)
+        }
+    }
+
+    private func rebuildSearchIndex() {
+        searchIndex = files.map { entry in
+            IndexedName(
+                name: entry.name,
+                scalars: Array(entry.name.lowercased().unicodeScalars.map(\.value)),
+                url: entry.url
+            )
+        }
+    }
+
+    private static func fuzzyScore(query: [UInt32], candidate: [UInt32]) -> Int? {
+        guard !query.isEmpty else { return 0 }
+        guard candidate.count >= query.count else { return nil }
+
+        var score = 0
+        var qi = 0
+        var consecutive = 0
+        let isPrefix = candidate.count >= query.count
+            && candidate[0..<query.count].elementsEqual(query)
+
+        if isPrefix { score += 20 }
+
+        for ci in 0..<candidate.count {
+            guard qi < query.count else { break }
+            if candidate[ci] == query[qi] {
+                score += 1
+                if consecutive > 0 { score += 3 }
+                if ci == 0 { score += 10 }
+                let isWordStart = ci > 0 && Self.isWordBoundary(candidate[ci - 1])
+                if isWordStart { score += 5 }
+                consecutive += 1
+                qi += 1
+            } else {
+                consecutive = 0
+            }
+        }
+
+        return qi == query.count ? score : nil
+    }
+
+    private static func isWordBoundary(_ scalar: UInt32) -> Bool {
+        scalar == 0x20 || scalar == 0x2D || scalar == 0x5F || scalar == 0x2E
     }
 
     func url(for name: String) -> URL? {
@@ -119,6 +187,11 @@ class VaultGraph {
         fileNameSet.insert(name)
         let idx = files.firstIndex { name.localizedCompare($0.name) == .orderedAscending } ?? files.endIndex
         files.insert(entry, at: idx)
+        searchIndex.append(IndexedName(
+            name: name,
+            scalars: Array(name.lowercased().unicodeScalars.map(\.value)),
+            url: url
+        ))
         indexFile(name: name, url: url)
     }
 

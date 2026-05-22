@@ -9,8 +9,16 @@ class EditorTab: Identifiable {
     var history = NavigationHistory()
     var cursorPositionToRestore: Int?
     var showReferences: Bool = false
+    @ObservationIgnored var indexWorkItem: DispatchWorkItem?
 
     var title: String {
         openFileURL?.deletingPathExtension().lastPathComponent ?? "Empty"
+    }
+
+    func scheduleIndex(name: String, url: URL, graph: VaultGraph) {
+        indexWorkItem?.cancel()
+        let item = DispatchWorkItem { graph.indexFile(name: name, url: url) }
+        indexWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 }
