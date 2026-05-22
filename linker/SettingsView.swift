@@ -27,6 +27,15 @@ struct SettingsView: View {
                 }
             }
 
+            Section("New Files") {
+                Picker("Default folder", selection: $appState.newFileFolder) {
+                    Text("/ (vault root)").tag("")
+                    ForEach(appState.graph.subdirectories, id: \.self) { dir in
+                        Text(dir).tag(dir)
+                    }
+                }
+            }
+
             Section("Editor") {
                 HStack {
                     Text("Text Size")
