@@ -6,16 +6,11 @@ struct TabEditorView: View {
     var onOpenLink: (String) -> Void
     @State private var editingName: String = ""
     @State private var nameError: String?
-    @FocusState private var nameFieldFocused: Bool
 
     private static let invalidCharacters = CharacterSet(charactersIn: ":/\\")
 
     var body: some View {
         VStack(spacing: 0) {
-            if tab.contentType == .markdown {
-                titleField
-                Divider()
-            }
             switch tab.contentType {
             case .markdown:
                 markdownEditor
@@ -39,53 +34,6 @@ struct TabEditorView: View {
         }
     }
 
-    private var titleField: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            TextField("Filename", text: $editingName)
-                .textFieldStyle(.plain)
-                .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, nameError != nil ? 0 : 8)
-                .focused($nameFieldFocused)
-                .onSubmit {
-                    renameFile()
-                    if nameError == nil {
-                        nameFieldFocused = false
-                        tab.needsFocus = true
-                    }
-                }
-                .onChange(of: nameFieldFocused) { _, focused in
-                    if !focused {
-                        renameFile()
-                        if nameError != nil { syncName() }
-                        nameError = nil
-                    }
-                }
-                .onChange(of: editingName) { _, newValue in
-                    validateName(newValue)
-                }
-                .onAppear { syncName() }
-                .onChange(of: tab.openFileURL) { _, _ in syncName() }
-                .onChange(of: tab.needsNameFieldFocus) { _, needed in
-                    if needed {
-                        nameFieldFocused = true
-                        tab.needsNameFieldFocus = false
-                        DispatchQueue.main.async {
-                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-                        }
-                    }
-                }
-            if let error = nameError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
-            }
-        }
-    }
-
     private var markdownEditor: some View {
         MarkdownTextView(
             text: $tab.fileContent,
@@ -105,8 +53,27 @@ struct TabEditorView: View {
                     let name = url.deletingPathExtension().lastPathComponent
                     tab.scheduleIndex(name: name, url: url, graph: appState.graph)
                 }
-            }
+            },
+            titleText: $editingName,
+            titleError: nameError,
+            onTitleCommit: {
+                renameFile()
+                if nameError == nil {
+                    tab.needsFocus = true
+                }
+            },
+            onTitleFocusLost: {
+                renameFile()
+                if nameError != nil { syncName() }
+                nameError = nil
+            },
+            needsTitleFocus: $tab.needsNameFieldFocus
         )
+        .onAppear { syncName() }
+        .onChange(of: tab.openFileURL) { _, _ in syncName() }
+        .onChange(of: editingName) { _, newValue in
+            validateName(newValue)
+        }
     }
 
     private func syncName() {
