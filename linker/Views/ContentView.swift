@@ -388,7 +388,14 @@ struct ContentView: View {
         appState.graph.removeFile(url: url)
         tab.openFileURL = nil
         tab.fileContent = ""
-        if let next = appState.graph.files.first {
+        if let entry = tab.history.goBack() {
+            tab.openFileURL = entry.url
+            if TabContentType.from(url: entry.url) == .markdown {
+                tab.fileContent = (try? String(contentsOf: entry.url, encoding: .utf8)) ?? ""
+                tab.cursorPositionToRestore = entry.cursorPosition
+                tab.needsFocus = true
+            }
+        } else if let next = appState.graph.files.first {
             openFile(next.url)
         }
     }

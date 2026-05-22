@@ -454,8 +454,8 @@ struct MarkdownTextView: NSViewRepresentable {
                 range: fullRange
             )
 
-            let existingColor = NSColor.systemBlue
-            let missingColor = NSColor.systemBlue.withAlphaComponent(0.4)
+            let existingColor = NSColor(red: 0.247, green: 0.0, blue: 0.824, alpha: 1.0)
+            let missingColor = NSColor(red: 0.616, green: 0.514, blue: 0.859, alpha: 1.0)
             for match in Self.wikiLinkRegex.matches(in: string, range: fullRange) {
                 let matchRange = match.range(at: 0)
                 let innerRange = match.range(at: 1)
@@ -479,7 +479,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 let urlString = nsString.substring(with: urlRange)
                 if let url = URL(string: urlString) {
                     textStorage.addAttribute(.link, value: url, range: textRange)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor(red: 0.15, green: 0.3, blue: 0.85, alpha: 1.0), range: textRange)
                 }
                 if dynamicRendering && !cursorInside(cursor, matchRange) {
                     newHidden.insert(matchRange.location)
