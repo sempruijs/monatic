@@ -1,4 +1,5 @@
 import SwiftUI
+import PDFKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
@@ -143,15 +144,16 @@ struct ContentView: View {
 
     private var editorView: some View {
         Group {
-            if let tab = selectedTab, tab.openFileURL != nil {
+            if let tab = selectedTab, let url = tab.openFileURL {
+                let baseName = url.deletingPathExtension().lastPathComponent
                 HStack(spacing: 0) {
                     TabEditorView(tab: tab, appState: appState, onOpenLink: openLinkedFile)
 
-                    if tab.showReferences, tab.openFileURL != nil {
+                    if tab.showReferences, tab.contentType == .markdown {
                         Divider()
                         ReferencesPanel(
-                            outgoing: outgoingItems(for: tab.title),
-                            incoming: incomingItems(for: tab.title),
+                            outgoing: outgoingItems(for: baseName),
+                            incoming: incomingItems(for: baseName),
                             onOpenFile: { openLinkedFile($0) }
                         )
                         .frame(width: 250)
@@ -170,11 +172,13 @@ struct ContentView: View {
                         }
                         .disabled(tab.history.canGoForward != true)
                     }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            tab.showReferences.toggle()
-                        } label: {
-                            Label("References", systemImage: "link")
+                    if tab.contentType == .markdown {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                tab.showReferences.toggle()
+                            } label: {
+                                Label("References", systemImage: "link")
+                            }
                         }
                     }
                 }
@@ -240,15 +244,23 @@ struct ContentView: View {
     }
 
     private func openFile(_ url: URL) {
+        let contentType = TabContentType.from(url: url)
+        if contentType == .unsupported {
+            NSWorkspace.shared.open(url)
+            showQuickOpen = false
+            return
+        }
+
         guard let tab = selectedTab else { return }
         tab.history.saveCursorPosition(tab.history.latestCursorPosition)
-        do {
-            tab.fileContent = try String(contentsOf: url, encoding: .utf8)
-            tab.openFileURL = url
-            tab.history.visit(url)
-            appState.graph.recordVisit(url)
+
+        tab.openFileURL = url
+        if contentType == .markdown {
+            tab.fileContent = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             tab.needsFocus = true
-        } catch {}
+        }
+        tab.history.visit(url)
+        appState.graph.recordVisit(url)
         showQuickOpen = false
     }
 
@@ -256,24 +268,24 @@ struct ContentView: View {
         guard let tab = selectedTab else { return }
         tab.history.saveCursorPosition(tab.history.latestCursorPosition)
         guard let entry = tab.history.goBack() else { return }
-        do {
-            tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-            tab.openFileURL = entry.url
+        tab.openFileURL = entry.url
+        if TabContentType.from(url: entry.url) == .markdown {
+            tab.fileContent = (try? String(contentsOf: entry.url, encoding: .utf8)) ?? ""
             tab.cursorPositionToRestore = entry.cursorPosition
             tab.needsFocus = true
-        } catch {}
+        }
     }
 
     private func goForward() {
         guard let tab = selectedTab else { return }
         tab.history.saveCursorPosition(tab.history.latestCursorPosition)
         guard let entry = tab.history.goForward() else { return }
-        do {
-            tab.fileContent = try String(contentsOf: entry.url, encoding: .utf8)
-            tab.openFileURL = entry.url
+        tab.openFileURL = entry.url
+        if TabContentType.from(url: entry.url) == .markdown {
+            tab.fileContent = (try? String(contentsOf: entry.url, encoding: .utf8)) ?? ""
             tab.cursorPositionToRestore = entry.cursorPosition
             tab.needsFocus = true
-        } catch {}
+        }
     }
 
     private func saveCurrentFile() {
@@ -318,52 +330,73 @@ struct TabEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Filename", text: $editingName)
-                .textFieldStyle(.plain)
-                .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .focused($nameFieldFocused)
-                .onSubmit {
-                    renameFile()
-                    nameFieldFocused = false
-                    tab.needsFocus = true
+            if tab.contentType == .markdown {
+                titleField
+                Divider()
+            }
+            switch tab.contentType {
+            case .markdown:
+                markdownEditor
+            case .pdf:
+                if let url = tab.openFileURL {
+                    PDFViewer(url: url)
                 }
-                .onChange(of: nameFieldFocused) { _, focused in
-                    if !focused { renameFile() }
-                }
-                .onAppear { syncName() }
-                .onChange(of: tab.openFileURL) { _, _ in syncName() }
-                .onChange(of: tab.needsNameFieldFocus) { _, needed in
-                    if needed {
-                        nameFieldFocused = true
-                        tab.needsNameFieldFocus = false
-                        DispatchQueue.main.async {
-                            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-                        }
-                    }
-                }
-            Divider()
-            MarkdownTextView(
-                text: $tab.fileContent,
-                fileNames: appState.graph.fileNameSet,
-                fontSize: appState.fontSize,
-                wordWrap: appState.wordWrap,
-                dynamicRendering: appState.dynamicRendering,
-                cursorPositionToRestore: $tab.cursorPositionToRestore,
-                needsFocus: $tab.needsFocus,
-                onOpenLink: onOpenLink,
-                onCursorChange: { tab.history.latestCursorPosition = $0 },
-                onTextChange: { newContent in
-                    tab.fileContent = newContent
-                    if appState.autoSave, let url = tab.openFileURL {
-                        try? newContent.write(to: url, atomically: true, encoding: .utf8)
-                        let name = url.deletingPathExtension().lastPathComponent
-                        tab.scheduleIndex(name: name, url: url, graph: appState.graph)
-                    }
-                }
-            )
+            case .unsupported:
+                Text("Unsupported file type")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+    }
+
+    private var titleField: some View {
+        TextField("Filename", text: $editingName)
+            .textFieldStyle(.plain)
+            .font(.system(size: appState.fontSize * 1.2, weight: .semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .focused($nameFieldFocused)
+            .onSubmit {
+                renameFile()
+                nameFieldFocused = false
+                tab.needsFocus = true
+            }
+            .onChange(of: nameFieldFocused) { _, focused in
+                if !focused { renameFile() }
+            }
+            .onAppear { syncName() }
+            .onChange(of: tab.openFileURL) { _, _ in syncName() }
+            .onChange(of: tab.needsNameFieldFocus) { _, needed in
+                if needed {
+                    nameFieldFocused = true
+                    tab.needsNameFieldFocus = false
+                    DispatchQueue.main.async {
+                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                    }
+                }
+            }
+    }
+
+    private var markdownEditor: some View {
+        MarkdownTextView(
+            text: $tab.fileContent,
+            fileNames: appState.graph.fileNameSet,
+            fontSize: appState.fontSize,
+            wordWrap: appState.wordWrap,
+            dynamicRendering: appState.dynamicRendering,
+            cursorPositionToRestore: $tab.cursorPositionToRestore,
+            needsFocus: $tab.needsFocus,
+            onOpenLink: onOpenLink,
+            onCursorChange: { tab.history.latestCursorPosition = $0 },
+            onTextChange: { newContent in
+                tab.fileContent = newContent
+                if appState.autoSave, let url = tab.openFileURL {
+                    try? newContent.write(to: url, atomically: true, encoding: .utf8)
+                    let name = url.deletingPathExtension().lastPathComponent
+                    tab.scheduleIndex(name: name, url: url, graph: appState.graph)
+                }
+            }
+        )
     }
 
     private func syncName() {
@@ -378,13 +411,33 @@ struct TabEditorView: View {
             editingName = currentName
             return
         }
-        let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        let ext = url.pathExtension
+        let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
         do {
             try FileManager.default.moveItem(at: url, to: newURL)
             appState.graph.renameFile(oldName: currentName, newName: newName, newURL: newURL)
             tab.openFileURL = newURL
         } catch {
             editingName = currentName
+        }
+    }
+}
+
+// MARK: - PDF Viewer
+
+struct PDFViewer: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.document = PDFDocument(url: url)
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        if pdfView.document?.documentURL != url {
+            pdfView.document = PDFDocument(url: url)
         }
     }
 }
