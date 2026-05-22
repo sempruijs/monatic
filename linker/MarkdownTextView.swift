@@ -1,5 +1,17 @@
 import SwiftUI
 
+private class MarkdownNSTextView: NSTextView {
+    var onCommandReturn: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) && event.keyCode == 36 {
+            onCommandReturn?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
     var fileNames: Set<String>
@@ -36,7 +48,7 @@ struct MarkdownTextView: NSViewRepresentable {
         textContainer.widthTracksTextView = wordWrap
         layoutManager.addTextContainer(textContainer)
 
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
+        let textView = MarkdownNSTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -59,6 +71,10 @@ struct MarkdownTextView: NSViewRepresentable {
         ]
         textView.textContainerInset = NSSize(width: 4, height: 8)
         textView.string = text
+        let coordinator = context.coordinator
+        textView.onCommandReturn = { [weak coordinator] in
+            coordinator?.openLinkAtCursor(in: textView)
+        }
 
         scrollView.documentView = textView
 
@@ -189,6 +205,32 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             NSWorkspace.shared.open(url)
             return true
+        }
+
+        func openLinkAtCursor(in textView: NSTextView) {
+            let cursor = textView.selectedRange().location
+            let string = textView.string as NSString
+            let fullRange = NSRange(location: 0, length: string.length)
+
+            for match in Self.wikiLinkRegex.matches(in: textView.string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                if cursor >= matchRange.location && cursor <= NSMaxRange(matchRange) {
+                    let name = string.substring(with: match.range(at: 1))
+                    onOpenLink(name)
+                    return
+                }
+            }
+
+            for match in Self.markdownLinkRegex.matches(in: textView.string, range: fullRange) {
+                let matchRange = match.range(at: 0)
+                if cursor >= matchRange.location && cursor <= NSMaxRange(matchRange) {
+                    let urlString = string.substring(with: match.range(at: 2))
+                    if let url = URL(string: urlString) {
+                        NSWorkspace.shared.open(url)
+                    }
+                    return
+                }
+            }
         }
 
         // MARK: - Styling
