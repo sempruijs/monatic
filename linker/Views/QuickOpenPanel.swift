@@ -54,6 +54,10 @@ struct QuickOpenPanel: View {
                     announceSelection()
                     return .handled
                 }
+                .onKeyPress(.tab) {
+                    previewSelected()
+                    return .handled
+                }
                 .onKeyPress(.escape) {
                     close()
                     return .handled
@@ -118,6 +122,11 @@ struct QuickOpenPanel: View {
     private func openSelected() {
         guard let result = searchResults[safe: selectedIndex] else { return }
         select(result.url)
+    }
+
+    private func previewSelected() {
+        guard let result = searchResults[safe: selectedIndex] else { return }
+        searchQuery = result.name
     }
 
     private func select(_ url: URL) {
