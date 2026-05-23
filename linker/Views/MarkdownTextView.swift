@@ -465,6 +465,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let nsString = string as NSString
 
             var newHidden = IndexSet()
+            let syntaxColor = NSColor.tertiaryLabelColor
 
             textStorage.beginEditing()
             textStorage.removeAttribute(.link, range: fullRange)
@@ -487,9 +488,13 @@ struct MarkdownTextView: NSViewRepresentable {
                     textStorage.addAttribute(.link, value: url, range: innerRange)
                 }
                 textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
+                let openBrackets = NSRange(location: matchRange.location, length: 2)
+                let closeBrackets = NSRange(location: NSMaxRange(matchRange) - 2, length: 2)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openBrackets)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeBrackets)
                 if dynamicRendering && !cursorInside(cursor, matchRange) {
-                    newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
-                    newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
+                    newHidden.insert(integersIn: openBrackets.location..<NSMaxRange(openBrackets))
+                    newHidden.insert(integersIn: closeBrackets.location..<NSMaxRange(closeBrackets))
                 }
             }
 
@@ -502,9 +507,13 @@ struct MarkdownTextView: NSViewRepresentable {
                     textStorage.addAttribute(.link, value: url, range: textRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor(red: 0.15, green: 0.3, blue: 0.85, alpha: 1.0), range: textRange)
                 }
+                let openBracket = NSRange(location: matchRange.location, length: 1)
+                let tailStart = NSMaxRange(textRange)
+                let tailRange = NSRange(location: tailStart, length: NSMaxRange(matchRange) - tailStart)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openBracket)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: tailRange)
                 if dynamicRendering && !cursorInside(cursor, matchRange) {
                     newHidden.insert(matchRange.location)
-                    let tailStart = NSMaxRange(textRange)
                     newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
                 }
             }
@@ -529,8 +538,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 let headingFont = NSFont.monospacedSystemFont(ofSize: headingSize, weight: .bold)
                 textStorage.addAttribute(.font, value: headingFont, range: textRange)
                 textStorage.addAttribute(.font, value: headingFont, range: hashRange)
+                let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: hashRange)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: spaceAfterHash)
                 if !cursorInside(cursor, matchRange) {
-                    let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
                     newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
                     newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
                 }
@@ -544,9 +555,13 @@ struct MarkdownTextView: NSViewRepresentable {
                     value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
                     range: innerRange
                 )
+                let openStars = NSRange(location: matchRange.location, length: 2)
+                let closeStars = NSRange(location: NSMaxRange(matchRange) - 2, length: 2)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openStars)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeStars)
                 if !cursorInside(cursor, matchRange) {
-                    newHidden.insert(integersIn: matchRange.location..<(matchRange.location + 2))
-                    newHidden.insert(integersIn: (NSMaxRange(matchRange) - 2)..<NSMaxRange(matchRange))
+                    newHidden.insert(integersIn: openStars.location..<NSMaxRange(openStars))
+                    newHidden.insert(integersIn: closeStars.location..<NSMaxRange(closeStars))
                 }
             }
 
@@ -562,6 +577,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 let desc = baseFont.fontDescriptor.withSymbolicTraits(.italic)
                 let italicFont = NSFont(descriptor: desc, size: fontSize) ?? baseFont
                 textStorage.addAttribute(.font, value: italicFont, range: innerRange)
+                let openMarker = NSRange(location: matchRange.location, length: 1)
+                let closeMarker = NSRange(location: NSMaxRange(matchRange) - 1, length: 1)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openMarker)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeMarker)
                 if !cursorInside(cursor, matchRange) {
                     newHidden.insert(matchRange.location)
                     newHidden.insert(NSMaxRange(matchRange) - 1)
