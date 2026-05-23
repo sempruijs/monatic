@@ -15,10 +15,22 @@ class MarkdownNSTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers == "f" {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command, event.charactersIgnoringModifiers == "f" {
             let item = NSMenuItem()
             item.tag = NSTextFinder.Action.showFindInterface.rawValue
+            performFindPanelAction(item)
+            return true
+        }
+        if flags == .command, event.charactersIgnoringModifiers == "g" {
+            let item = NSMenuItem()
+            item.tag = NSTextFinder.Action.nextMatch.rawValue
+            performFindPanelAction(item)
+            return true
+        }
+        if flags == [.command, .shift], event.charactersIgnoringModifiers == "G" {
+            let item = NSMenuItem()
+            item.tag = NSTextFinder.Action.previousMatch.rawValue
             performFindPanelAction(item)
             return true
         }
