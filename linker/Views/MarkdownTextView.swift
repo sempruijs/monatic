@@ -108,7 +108,6 @@ struct MarkdownTextView: NSViewRepresentable {
 
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
-        layoutManager.delegate = context.coordinator
         textStorage.addLayoutManager(layoutManager)
         let containerWidth = wordWrap ? contentSize.width : CGFloat.greatestFiniteMagnitude
         let textContainer = NSTextContainer(size: NSSize(width: containerWidth, height: CGFloat.greatestFiniteMagnitude))
@@ -327,7 +326,7 @@ struct MarkdownTextView: NSViewRepresentable {
         }
     }
 
-    class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate, NSTextFieldDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate, NSTextFieldDelegate {
         var text: Binding<String>
         var titleText: Binding<String>
         var onOpenLink: (String) -> Void
@@ -343,7 +342,6 @@ struct MarkdownTextView: NSViewRepresentable {
         var dynamicRendering: Bool = true
         let completionPanel = CompletionPanel()
         private var isUpdating = false
-        private var hiddenIndices = IndexSet()
 
         init(text: Binding<String>, titleText: Binding<String>, onOpenLink: @escaping (String) -> Void, onCursorChange: ((Int) -> Void)?, onTextChange: ((String) -> Void)?, onTitleCommit: (() -> Void)?, onTitleFocusLost: (() -> Void)?) {
             self.text = text
@@ -353,34 +351,6 @@ struct MarkdownTextView: NSViewRepresentable {
             self.onTextChange = onTextChange
             self.onTitleCommit = onTitleCommit
             self.onTitleFocusLost = onTitleFocusLost
-        }
-
-        // MARK: - NSLayoutManagerDelegate
-
-        func layoutManager(
-            _ layoutManager: NSLayoutManager,
-            shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
-            properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
-            characterIndexes charIndexes: UnsafePointer<Int>,
-            font aFont: NSFont,
-            forGlyphRange glyphRange: NSRange
-        ) -> Int {
-            var needsChange = false
-            for i in 0..<glyphRange.length {
-                if hiddenIndices.contains(charIndexes[i]) {
-                    needsChange = true
-                    break
-                }
-            }
-            guard needsChange else { return 0 }
-
-            let modified = UnsafeMutablePointer<NSLayoutManager.GlyphProperty>.allocate(capacity: glyphRange.length)
-            defer { modified.deallocate() }
-            for i in 0..<glyphRange.length {
-                modified[i] = hiddenIndices.contains(charIndexes[i]) ? .null : props[i]
-            }
-            layoutManager.setGlyphs(glyphs, properties: modified, characterIndexes: charIndexes, font: aFont, forGlyphRange: glyphRange)
-            return glyphRange.length
         }
 
         // MARK: - NSTextViewDelegate
@@ -453,18 +423,12 @@ struct MarkdownTextView: NSViewRepresentable {
         private static let italicRegex = try! NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!\\w)_(.+?)_(?!\\w)")
         private static let headingScales: [CGFloat] = [2.0, 1.7, 1.4, 1.2, 1.1]
 
-        private func cursorInside(_ cursor: Int, _ range: NSRange) -> Bool {
-            cursor >= range.location && cursor <= NSMaxRange(range)
-        }
-
         func applyMarkdownStyling(to textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
             let string = textStorage.string
             let fullRange = NSRange(location: 0, length: textStorage.length)
-            let cursor = textView.selectedRange().location
             let nsString = string as NSString
 
-            var newHidden = IndexSet()
             let syntaxColor = NSColor.tertiaryLabelColor
 
             textStorage.beginEditing()
@@ -488,48 +452,30 @@ struct MarkdownTextView: NSViewRepresentable {
                     textStorage.addAttribute(.link, value: url, range: innerRange)
                 }
                 textStorage.addAttribute(.foregroundColor, value: color, range: innerRange)
-                let openBrackets = NSRange(location: matchRange.location, length: 2)
-                let closeBrackets = NSRange(location: NSMaxRange(matchRange) - 2, length: 2)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openBrackets)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeBrackets)
-                if dynamicRendering && !cursorInside(cursor, matchRange) {
-                    newHidden.insert(integersIn: openBrackets.location..<NSMaxRange(openBrackets))
-                    newHidden.insert(integersIn: closeBrackets.location..<NSMaxRange(closeBrackets))
-                }
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: matchRange.location, length: 2))
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: NSMaxRange(matchRange) - 2, length: 2))
             }
 
             for match in Self.markdownLinkRegex.matches(in: string, range: fullRange) {
-                let matchRange = match.range(at: 0)
                 let textRange = match.range(at: 1)
                 let urlRange = match.range(at: 2)
+                let matchRange = match.range(at: 0)
                 let urlString = nsString.substring(with: urlRange)
                 if let url = URL(string: urlString) {
                     textStorage.addAttribute(.link, value: url, range: textRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor(red: 0.15, green: 0.3, blue: 0.85, alpha: 1.0), range: textRange)
                 }
-                let openBracket = NSRange(location: matchRange.location, length: 1)
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: matchRange.location, length: 1))
                 let tailStart = NSMaxRange(textRange)
-                let tailRange = NSRange(location: tailStart, length: NSMaxRange(matchRange) - tailStart)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openBracket)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: tailRange)
-                if dynamicRendering && !cursorInside(cursor, matchRange) {
-                    newHidden.insert(matchRange.location)
-                    newHidden.insert(integersIn: tailStart..<NSMaxRange(matchRange))
-                }
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: tailStart, length: NSMaxRange(matchRange) - tailStart))
             }
 
             guard dynamicRendering else {
-                hiddenIndices = newHidden
                 textStorage.endEditing()
-                if let lm = textView.layoutManager {
-                    lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
-                    lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-                }
                 return
             }
 
             for match in Self.headingRegex.matches(in: string, range: fullRange) {
-                let matchRange = match.range(at: 0)
                 let hashRange = match.range(at: 1)
                 let textRange = match.range(at: 2)
                 let level = hashRange.length
@@ -541,10 +487,6 @@ struct MarkdownTextView: NSViewRepresentable {
                 let spaceAfterHash = NSRange(location: NSMaxRange(hashRange), length: textRange.location - NSMaxRange(hashRange))
                 textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: hashRange)
                 textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: spaceAfterHash)
-                if !cursorInside(cursor, matchRange) {
-                    newHidden.insert(integersIn: hashRange.location..<NSMaxRange(hashRange))
-                    newHidden.insert(integersIn: spaceAfterHash.location..<NSMaxRange(spaceAfterHash))
-                }
             }
 
             for match in Self.boldRegex.matches(in: string, range: fullRange) {
@@ -555,14 +497,8 @@ struct MarkdownTextView: NSViewRepresentable {
                     value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
                     range: innerRange
                 )
-                let openStars = NSRange(location: matchRange.location, length: 2)
-                let closeStars = NSRange(location: NSMaxRange(matchRange) - 2, length: 2)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openStars)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeStars)
-                if !cursorInside(cursor, matchRange) {
-                    newHidden.insert(integersIn: openStars.location..<NSMaxRange(openStars))
-                    newHidden.insert(integersIn: closeStars.location..<NSMaxRange(closeStars))
-                }
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: matchRange.location, length: 2))
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: NSMaxRange(matchRange) - 2, length: 2))
             }
 
             for match in Self.italicRegex.matches(in: string, range: fullRange) {
@@ -577,23 +513,11 @@ struct MarkdownTextView: NSViewRepresentable {
                 let desc = baseFont.fontDescriptor.withSymbolicTraits(.italic)
                 let italicFont = NSFont(descriptor: desc, size: fontSize) ?? baseFont
                 textStorage.addAttribute(.font, value: italicFont, range: innerRange)
-                let openMarker = NSRange(location: matchRange.location, length: 1)
-                let closeMarker = NSRange(location: NSMaxRange(matchRange) - 1, length: 1)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: openMarker)
-                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: closeMarker)
-                if !cursorInside(cursor, matchRange) {
-                    newHidden.insert(matchRange.location)
-                    newHidden.insert(NSMaxRange(matchRange) - 1)
-                }
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: matchRange.location, length: 1))
+                textStorage.addAttribute(.foregroundColor, value: syntaxColor, range: NSRange(location: NSMaxRange(matchRange) - 1, length: 1))
             }
 
-            hiddenIndices = newHidden
             textStorage.endEditing()
-
-            if let lm = textView.layoutManager {
-                lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
-                lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-            }
         }
 
         // MARK: - Completion
