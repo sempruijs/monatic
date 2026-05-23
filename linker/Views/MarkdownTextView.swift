@@ -87,6 +87,14 @@ struct MarkdownTextView: NSViewRepresentable {
         return coordinator
     }
 
+    private static func titleFieldHeight(for field: NSTextField, width: CGFloat) -> CGFloat {
+        guard let cell = field.cell else {
+            return ceil(field.font?.boundingRectForFont.height ?? 20) + 8
+        }
+        let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: CGFloat.greatestFiniteMagnitude))
+        return ceil(size.height) + 8
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -131,7 +139,6 @@ struct MarkdownTextView: NSViewRepresentable {
         let titleFontSize = fontSize * 2.5
         let titleFont = NSFont.systemFont(ofSize: titleFontSize, weight: .semibold)
         let titleFieldY: CGFloat = 44
-        let titleFieldHeight = ceil(titleFont.boundingRectForFont.height) + 8
 
         let titleX = contentPadding + 4
         let titleWidth = max(100, contentSize.width - titleX * 2)
@@ -146,6 +153,12 @@ struct MarkdownTextView: NSViewRepresentable {
         titleField.isEditable = isEditable
         titleField.isSelectable = isEditable
         titleField.delegate = context.coordinator
+        titleField.maximumNumberOfLines = 0
+        titleField.cell?.wraps = true
+        titleField.cell?.isScrollable = false
+        titleField.lineBreakMode = .byWordWrapping
+        titleField.preferredMaxLayoutWidth = titleWidth
+        let titleFieldHeight = Self.titleFieldHeight(for: titleField, width: titleWidth)
         titleField.frame = NSRect(x: titleX, y: titleFieldY, width: titleWidth, height: titleFieldHeight)
         titleField.autoresizingMask = [.width]
 
@@ -270,16 +283,24 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         let titleFont = NSFont.systemFont(ofSize: fontSize * 2.5, weight: .semibold)
-        let tfHeight = ceil(titleFont.boundingRectForFont.height) + 8
+        var tfHeight = ceil(titleFont.boundingRectForFont.height) + 8
         if let titleField = context.coordinator.titleField {
             if titleField.stringValue != titleText {
                 titleField.stringValue = titleText
             }
             if fontChanged {
                 titleField.font = titleFont
-                titleField.frame.size.height = tfHeight
-                context.coordinator.titleErrorLabel?.frame.origin.y = 44 + tfHeight + 2
             }
+            let titleX = contentPadding + 4
+            let titleWidth = max(100, scrollView.contentSize.width - titleX * 2)
+            titleField.frame.origin.x = titleX
+            titleField.frame.size.width = titleWidth
+            titleField.preferredMaxLayoutWidth = titleWidth
+            tfHeight = Self.titleFieldHeight(for: titleField, width: titleWidth)
+            titleField.frame.size.height = tfHeight
+            context.coordinator.titleErrorLabel?.frame.origin.x = titleX
+            context.coordinator.titleErrorLabel?.frame.size.width = titleWidth
+            context.coordinator.titleErrorLabel?.frame.origin.y = 44 + tfHeight + 2
         }
         if let errorLabel = context.coordinator.titleErrorLabel {
             if let error = titleError {
