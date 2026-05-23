@@ -4,6 +4,7 @@ class MarkdownNSTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
     weak var completionPanel: CompletionPanel?
     var onCompletionConfirm: (() -> Void)?
+    var onCompletionInsert: (() -> Void)?
     var onCompletionDismiss: (() -> Void)?
     var customTopInset: CGFloat?
 
@@ -54,7 +55,7 @@ class MarkdownNSTextView: NSTextView {
                 }
                 return
             case 48: // tab
-                onCompletionConfirm?()
+                onCompletionInsert?()
                 return
             case 53: // escape
                 onCompletionDismiss?()
@@ -198,6 +199,9 @@ struct MarkdownTextView: NSViewRepresentable {
         }
         textView.onCompletionConfirm = { [weak coordinator] in
             coordinator?.confirmCompletion(in: textView)
+        }
+        textView.onCompletionInsert = { [weak coordinator] in
+            coordinator?.insertCompletion(in: textView)
         }
         textView.onCompletionDismiss = { [weak coordinator] in
             coordinator?.dismissCompletion()
@@ -580,6 +584,17 @@ struct MarkdownTextView: NSViewRepresentable {
                 in: window,
                 items: matches
             )
+        }
+
+        func insertCompletion(in textView: NSTextView) {
+            guard let selected = completionPanel.selectedItem(),
+                  let (_, queryRange) = wikiLinkQuery(in: textView) else {
+                return
+            }
+            if textView.shouldChangeText(in: queryRange, replacementString: selected) {
+                textView.replaceCharacters(in: queryRange, with: selected)
+                textView.didChangeText()
+            }
         }
 
         func confirmCompletion(in textView: NSTextView) {
